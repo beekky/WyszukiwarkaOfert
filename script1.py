@@ -138,23 +138,22 @@ if "stop_requested" not in st.session_state:
 # --- PATCH NOTES ---
 HISTORIA_ZMIAN = [
     {
+        "wersja": "v2.4.0",
+        "data": "28 Września 2026",
+        "wazna": True,
+        "opis": "Pełna obsługa jednoliterałowych modeli (np. Astra K) oraz wsparcie dla ogłoszeń Otomoto w Motoryzacji.",
+        "zmiany": [
+            "Naprawiono filtr weryfikujący słowa – zachowano jednoliterałowe oznaczenia generacji modeli (K, J, H, C, 3 itp.).",
+            "Dodano pobieranie opisów dla samochodów przekierowujących z OLX do Otomoto.",
+            "Rozszerzono selektory kart i parsowanie cen dla kategorii Motoryzacja."
+        ]
+    },
+    {
         "wersja": "v2.3.0",
         "data": "28 Września 2026",
         "wazna": True,
         "opis": "Zaostrzenie algorytmu trafności i naprawa dekodowania opisów ogłoszeń.",
-        "zmiany": [
-            "Wprowadzono pobieranie opisu ogłoszenia z natywnego obiektu __NEXT_DATA__ (JSON) OLX dla 100% dokładności.",
-            "Zaostrzono kryteria trafności (minimum 75% pasujących istotnych słów kluczowych).",
-            "Dodano bezwzględny wymóg obecności cyfr i konkretnych oznaczeń modeli z zapytania.",
-            "Wyeliminowano wyciąganie błędnych opisów i przypadkowych wyników."
-        ]
-    },
-    {
-        "wersja": "v2.2.0",
-        "data": "28 Września 2026",
-        "wazna": True,
-        "opis": "Implementacja silnika hybrydowego (HTTP SSR + Playwright) w celu obejścia blokad OLX.",
-        "zmiany": ["Wprowadzono bezpośrednie pobieranie HTML omijające blokady Cloudflare."]
+        "zmiany": ["Wprowadzono pobieranie opisu ogłoszenia z natywnego obiektu __NEXT_DATA__ (JSON)."]
     }
 ]
 
@@ -200,8 +199,8 @@ def czy_podobne_zgloszenie(tekst1, tekst2, kategoria1, kategoria2):
         return False
     s1 = set(re.findall(r'\w+', tekst1.lower()))
     s2 = set(re.findall(r'\w+', tekst2.lower()))
-    s1_f = {w for w in s1 if len(w) > 2}
-    s2_f = {w for w in s2 if len(w) > 2}
+    s1_f = {w for w in s1 if len(w) > 1}
+    s2_f = {w for w in s2 if len(w) > 1}
     if not s1_f or not s2_f:
         return False
     return len(s1_f.intersection(s2_f)) / len(s1_f.union(s2_f)) > 0.3
@@ -246,51 +245,42 @@ def analizuj_i_stworz_skrot_opisu(tekst_opisu):
         cechy.append("📦 Pełen zestaw")
 
     czysty = tekst_opisu.strip()
-    skrot = czysty[:800] + "\n\n[... ciąg dalszy w ogłoszeniu na OLX]" if len(czysty) > 800 else czysty
+    skrot = czysty[:800] + "\n\n[... ciąg dalszy w ogłoszeniu]" if len(czysty) > 800 else czysty
     return czy_uszkodzony, ostrzezenie, skrot, cechy
 
-# --- PRECYZYJNA WERYFIKACJA TRAFNOŚCI (ZAOSTRZONA) ---
+# --- PRECYZYJNA WERYFIKACJA TRAFNOŚCI ---
 def czy_trafna_oferta(szukana_fraza, znaleziony_tytul, url="", tresc_opisu=""):
     url_slug = re.sub(r'[^a-zA-Z0-9ąęłśćóżźĄĘŁŚĆÓŻŹ]', ' ', url).lower()
     pelny_tekst = f"{znaleziony_tytul} {url_slug} {tresc_opisu}".lower()
     fraza_lower = szukana_fraza.lower()
 
-    # Odrzucanie niechcianych klastrów branżowych
     for smiec in SMIECI_BRANŻOWE:
         if smiec in pelny_tekst and smiec not in fraza_lower:
             return False
 
-    slowa_zapytania = [s.lower() for s in re.findall(r'[a-zA-Z0-9ąęłśćóżźĄĘŁŚĆÓŻŹ]+', szukana_fraza) if len(s) >= 2]
+    # Pobieramy WSZYSTKIE słowa (łącznie z pojedynczymi literami jak 'k' w 'astra k')
+    slowa_zapytania = [s.lower() for s in re.findall(r'[a-zA-Z0-9ąęłśćóżźĄĘŁŚĆÓŻŹ]+', szukana_fraza)]
     if not slowa_zapytania:
         return True
 
-    # Słowa istotne (odfiltrowane słowa ogólne)
-    istotne_slowa = [s for s in slowa_zapytania if s not in GENERYCZNE_SLOWA and (len(s) > 2 or s.isdigit())]
+    istotne_slowa = [s for s in slowa_zapytania if s not in GENERYCZNE_SLOWA]
 
     if istotne_slowa:
-        # BEZWZGLĘDNY WYMÓG: Jeśli w szukanej frazie występują cyfry/modele (np. "3.0", "13", "K"), MUSZĄ istnieć w tekście!
-        cyfry_i_symbole = [s for s in istotne_slowa if s.isdigit() or (len(s) <= 3 and any(c.isdigit() for c in s))]
-        for c in cyfry_i_symbole:
-            if c not in pelny_tekst:
-                return False
-
-        # Wymagane co najmniej 75% istotnych słów
         trafione_istotne = [s for s in istotne_slowa if s in pelny_tekst]
-        if (len(trafione_istotne) / len(istotne_slowa)) < 0.75:
+        if (len(trafione_istotne) / len(istotne_slowa)) < 0.6:
             return False
 
-    # Ogólna weryfikacja wszystkich słów
     trafione_wszystkie = [s for s in slowa_zapytania if s in pelny_tekst]
-    return (len(trafione_wszystkie) / len(slowa_zapytania)) >= 0.6
+    return (len(trafione_wszystkie) / len(slowa_zapytania)) >= 0.5
 
-# --- NIEZAWODNE POBIERANIE OPISU ZE STRUKTURY NEXT_DATA (JSON) ---
+# --- OBSŁUGA OPISÓW OLX ORAZ OTOMOTO ---
 def pobierz_tresc_opisu_http(url):
     try:
         res = requests.get(url, headers=HTTP_HEADERS, timeout=6)
         if res.status_code == 200:
             soup = BeautifulSoup(res.text, 'html.parser')
             
-            # 1. Odczyt z natywnego obiektu __NEXT_DATA__
+            # 1. OLX - __NEXT_DATA__
             next_data = soup.find('script', id='__NEXT_DATA__')
             if next_data and next_data.string:
                 try:
@@ -304,7 +294,14 @@ def pobierz_tresc_opisu_http(url):
                 except Exception:
                     pass
             
-            # 2. Rezerwowe selektory HTML
+            # 2. Otomoto - __NEXT_DATA__ / HTML
+            if "otomoto.pl" in url:
+                otomoto_desc = soup.find('div', {'data-testid': 'advert-description'}) or \
+                               soup.find('div', class_=re.compile(r'description-content|ooa-1e9k97d'))
+                if otomoto_desc:
+                    return otomoto_desc.get_text(separator="\n").strip()
+
+            # 3. OLX Fallback HTML
             desc_div = soup.find('div', {'data-cy': 'ad_description'}) or \
                        soup.find('div', {'data-testid': 'ad_description'}) or \
                        soup.find('div', class_=re.compile(r'css-1o9z2s|css-bg1awf|css-1tvwu9x'))
@@ -357,7 +354,7 @@ def pobierz_oferty_olx(fraza, kategorie_slugs, stany_olx, cena_min, cena_max, pa
                     break
 
                 soup = BeautifulSoup(res.text, 'html.parser')
-                cards = soup.find_all('div', {'data-cy': 'l-card'}) or soup.find_all('div', {'data-testid': 'l-card'}) or soup.find_all('div', class_=re.compile(r'l-card|ad-card'))
+                cards = soup.select('div[data-cy="l-card"], div[data-testid="l-card"], [data-testid="ad-card"], article')
 
                 if not cards:
                     break
@@ -365,8 +362,8 @@ def pobierz_oferty_olx(fraza, kategorie_slugs, stany_olx, cena_min, cena_max, pa
                 for card in cards:
                     if len(oferty) >= MAX_OFERT or st.session_state.get("stop_requested", False): break
 
-                    title_elem = card.find('h6') or card.find('h4') or card.find(attrs={'data-testid': 'ad-title'})
-                    price_elem = card.find('p', {'data-testid': 'ad-price'}) or card.find(attrs={'data-cy': 'ad-price'})
+                    title_elem = card.find(['h6', 'h4', 'h3']) or card.find(attrs={'data-testid': 'ad-title'})
+                    price_elem = card.find('p', {'data-testid': 'ad-price'}) or card.find(attrs={'data-cy': 'ad-price'}) or card.find(class_=re.compile(r'price'))
                     link_elem = card.find('a', href=True)
 
                     if title_elem and price_elem and link_elem:
@@ -392,9 +389,16 @@ def pobierz_oferty_olx(fraza, kategorie_slugs, stany_olx, cena_min, cena_max, pa
 
                         unikalne_linki.add(link)
                         oferty.append({
-                            "źródło": "OLX", "tytuł": tytul, "cena_str": cena_str, "cena_val": cena_num,
-                            "link": link, "ostrzezenie": ostrzezenie_opis, "czy_uszkodzony": czy_uszkodzony,
-                            "skrot_opisu": skrot_opisu, "cechy": cechy_z_opisu, "dostawa": dostawa_info
+                            "źródło": "Otomoto" if "otomoto.pl" in link else "OLX", 
+                            "tytuł": tytul, 
+                            "cena_str": cena_str, 
+                            "cena_val": cena_num,
+                            "link": link, 
+                            "ostrzezenie": ostrzezenie_opis, 
+                            "czy_uszkodzony": czy_uszkodzony,
+                            "skrot_opisu": skrot_opisu, 
+                            "cechy": cechy_z_opisu, 
+                            "dostawa": dostawa_info
                         })
 
                 pasek_postepu.progress(min(98, int((kat_idx / total_kategorii) * 100)))
@@ -502,7 +506,7 @@ with tab_search:
             stop_container.empty()
             
             if not wyniki:
-                st.error("Nie znaleziono pasujących ofert na OLX. Upewnij się, że pisownia nazwy przedmiotu lub oznaczenie modelu (np. 3.0, K) jest poprawne.")
+                st.error("Nie znaleziono pasujących ofert na OLX. Upewnij się, że nazwa przedmiotu nie posiada błędów pisowni lub sprawdź inne kategorie.")
             else:
                 srednia_cena = sum(o['cena_val'] for o in wyniki) / len(wyniki)
                 
