@@ -18,49 +18,54 @@ from datetime import datetime
 
 st.set_page_config(page_title="Wyszukiwarka Ofert OLX", layout="wide")
 
+# --- INICJALIZACJA SESSION STATE ---
+if "bufor_zgloszen" not in st.session_state:
+    st.session_state["bufor_zgloszen"] = []
+
+if "zalogowany_admin" not in st.session_state:
+    st.session_state["zalogowany_admin"] = False
+
 # --- STRUKTURA HISTORII ZMIAN (PATCH NOTES) ---
 HISTORIA_ZMIAN = [
     {
-        "wersja": "v1.2.0",
+        "wersja": "v1.5.0",
         "data": "28 Września 2026",
         "wazna": True,
-        "opis": "Dodanie bufora zgłoszeń błędów od użytkowników i rozbudowa architektury Patch Notes.",
+        "opis": "Naprawa izolacji okna logowania oraz poprawne pozycjonowanie ukrytej strefy Admina.",
         "zmiany": [
-            "Wprowadzono dedykowaną zakładkę do zgłaszania błędów, propozycji i problemów przez użytkowników.",
-            "Stworzono aktywny bufor zapisujący zgłoszenia użytkowników w czasie rzeczywistym.",
-            "Zrekonstruowano strukturę historii zmian z możliwością filtrowania wydań głównych (Major) i drobnych (Minor)."
+            "Usunięto błąd samoczynnego otwierania się popupu logowania po wysłaniu zgłoszenia przez użytkownika.",
+            "Przeniesiono ukryty przycisk na sam koniec drzewa DOM poza wszystkie kontenery.",
+            "Zastosowano bezwzględne pozycjonowanie fixed (bottom: 0, right: 0) oraz 100% niewidzialności (opacity: 0)."
+        ]
+    },
+    {
+        "wersja": "v1.4.0",
+        "data": "28 Września 2026",
+        "wazna": True,
+        "opis": "System statusów zgłoszeń i inteligentna agregacja duplikatów.",
+        "zmiany": [
+            "Dodano możliwość zmiany statusów zgłoszeń przez admina (Oczekuje / W trakcie / Rozwiązany / Odrzucony).",
+            "Wprowadzono automatyczne wykrywanie i łączenie powtarzających się zgłoszeń z podbiciem priorytetu."
+        ]
+    },
+    {
+        "wersja": "v1.3.0",
+        "data": "28 Września 2026",
+        "wazna": True,
+        "opis": "Zabezpieczenie bufora zgłoszeń i autoryzacja administratora.",
+        "zmiany": [
+            "Ukryto podgląd bufora błędów dla zwykłych użytkowników.",
+            "Dodano okno popup z logowaniem (login: admin, hasło: admin)."
         ]
     },
     {
         "wersja": "v1.1.0",
         "data": "28 Września 2026",
         "wazna": True,
-        "opis": "Oficjalna wersja stabilna z natywnymi zakładkami i pełnym skanowaniem opisów.",
+        "opis": "Oficjalna wersja stabilna z natywnymi zakładkami i skanowaniem opisów.",
         "zmiany": [
-            "Przywrócenie natywnych zakładek (st.tabs) u góry ekranu.",
-            "Dogłębne przeszukiwanie opisu weryfikujące tytuł, slug oraz treść pod kątem szukanej frazy.",
+            "Przeszukiwanie opisu weryfikujące tytuł, slug oraz treść pod kątem szukanej frazy.",
             "Agresywna blokada reklam i trackerów zwiększająca wydajność skanowania."
-        ]
-    },
-    {
-        "wersja": "v1.0.4",
-        "data": "28 Września 2026",
-        "wazna": False,
-        "opis": "Poprawki interfejsu i stabilności.",
-        "zmiany": [
-            "Optymalizacja bocznego paska nawigacji i wymuszenie odświeżania pamięci podręcznej.",
-            "Poprawa czytelności cen i kontenerów wyników."
-        ]
-    },
-    {
-        "wersja": "v1.0.0",
-        "data": "28 Września 2026",
-        "wazna": True,
-        "opis": "Pierwsza pełna wersja silnika wyszukiwarki OLX.",
-        "zmiany": [
-            "Wyszukiwanie bezgłowe w tle (Headless Playwright).",
-            "Obsługa wielu kategorii OLX jednocześnie z dedukcją duplikatów.",
-            "Detekcja Przesyłki OLX, wysyłki prywatnej, odbioru osobistego oraz analiza opisu pod kątem wad."
         ]
     }
 ]
@@ -104,9 +109,25 @@ KATEGORIE_OLX = {
     "Antyki i Kolekcje": "antyki-sztuka-kolekcje"
 }
 
-# --- INICJALIZACJA BUFORA ZGŁOSZEŃ W SESSION_STATE ---
-if "bufor_zgloszen" not in st.session_state:
-    st.session_state["bufor_zgloszen"] = []
+def czy_podobne_zgloszenie(tekst1, tekst2, kategoria1, kategoria2):
+    """Sprawdza czy dwa zgłoszenia dotyczą tego samego problemu."""
+    if kategoria1 != kategoria2:
+        return False
+    
+    s1 = set(re.findall(r'\w+', tekst1.lower()))
+    s2 = set(re.findall(r'\w+', tekst2.lower()))
+    
+    s1_filtr = {w for w in s1 if len(w) > 2}
+    s2_filtr = {w for w in s2 if len(w) > 2}
+    
+    if not s1_filtr or not s2_filtr:
+        return False
+        
+    wspolne = s1_filtr.intersection(s2_filtr)
+    wszystkie = s1_filtr.union(s2_filtr)
+    podobienstwo = len(wspolne) / len(wszystkie)
+    
+    return podobienstwo > 0.3 or " ".join(s1_filtr) in " ".join(s2_filtr) or " ".join(s2_filtr) in " ".join(s1_filtr)
 
 def wyciagnij_nazwe_z_linku(url_lub_tekst):
     """Pobiera tytuł ze strony sklepu, jeśli podano link."""
@@ -381,6 +402,26 @@ def pobierz_oferty_olx(fraza, kategorie_slugs, stany_olx, cena_min, cena_max, pa
     pasek_postepu.progress(100)
     return oferty, odrzucone_list, total_time_formatted
 
+# --- FUNKCJA DIALOGOWA LOGOWANIA (GWARANCJA BRAKU AUTO-OTWIERANIA) ---
+@st.dialog("🔐 Panel Logowania Administratora")
+def dialog_logowania():
+    st.write("Wprowadź dane dostępowe, aby odblokować wgląd do bufora błędów:")
+    login = st.text_input("Login", key="dialog_login_input")
+    haslo = st.text_input("Hasło", type="password", key="dialog_pass_input")
+    
+    col_l1, col_l2 = st.columns(2)
+    with col_l1:
+        if st.button("Zaloguj się", use_container_width=True, key="dialog_btn_login"):
+            if login == "admin" and haslo == "admin":
+                st.session_state["zalogowany_admin"] = True
+                st.success("Zalogowano pomyślnie!")
+                st.rerun()
+            else:
+                st.error("Błędny login lub hasło!")
+    with col_l2:
+        if st.button("Anuluj", use_container_width=True, key="dialog_btn_cancel"):
+            st.rerun()
+
 # --- INTERFEJS APLIKACJI ---
 
 st.title("🔍 Porównywarka Ofert OLX")
@@ -480,7 +521,6 @@ with tab_search:
 with tab_patch_notes:
     st.header("📋 Historia Zmian (Patch Notes)")
 
-    # Przyszły przełącznik filtrowania (możliwość pokazywania tylko kluczowych zmian)
     tylko_wazne = st.checkbox("Pokaż tylko najważniejsze wersje (Major Releases)", value=False)
 
     for item in HISTORIA_ZMIAN:
@@ -495,7 +535,7 @@ with tab_patch_notes:
             st.markdown(f"* {zmiana}")
         st.divider()
 
-# === ZAKŁADKA 3: BUFOR ZGŁOSZEŃ / FEEDBACK ===
+# === ZAKŁADKA 3: FEEDBACK / ZGŁOSZENIA ===
 with tab_feedback:
     st.header("💬 Centrum Zgłoszeń i Uwag")
     st.write("Coś nie działa, a może masz pomysł na nową funkcję? Zgłoś to poniżej.")
@@ -512,30 +552,130 @@ with tab_feedback:
 
         opis_problem = st.text_area("Opis sytuacji / co nie działa:", placeholder="np. Wyszukując 'Astra K' na stronie 2 dostałem błąd timeout...")
         
-        submit = st.form_submit_button("Wyślij zgłoszenie do bufora")
+        submit = st.form_submit_button("Wyślij zgłoszenie")
 
         if submit:
             if not opis_problem.strip():
                 st.error("Proszę wpisać opis zgłoszenia.")
             else:
-                nowy_wpis = {
-                    "id": len(st.session_state["bufor_zgloszen"]) + 1,
-                    "czas": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    "kategoria": typ_zgloszenia,
-                    "autor": autor.strip() if autor.strip() else "Anonim",
-                    "opis": opis_problem.strip(),
-                    "status": "⏳ Oczekuje na weryfikację"
-                }
-                st.session_state["bufor_zgloszen"].insert(0, nowy_wpis)
-                st.success("Dziękujemy! Zgłoszenie zostało dodane do bufora.")
+                autor_clean = autor.strip() if autor.strip() else "Anonim"
+                opis_clean = opis_problem.strip()
+                
+                znaleziony_duplikat = None
+                for zgl in st.session_state["bufor_zgloszen"]:
+                    if czy_podobne_zgloszenie(opis_clean, zgl["opis"], typ_zgloszenia, zgl["kategoria"]):
+                        znaleziony_duplikat = zgl
+                        break
 
-    st.divider()
-    st.subheader(f"📥 Aktywny Bufor Zgłoszeń ({len(st.session_state['bufor_zgloszen'])})")
+                if znaleziony_duplikat:
+                    znaleziony_duplikat["licznik"] += 1
+                    znaleziony_duplikat["priorytet"] = "🔥 Wysoki Priorytet"
+                    znaleziony_duplikat["czas_ostatniego"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    if autor_clean not in znaleziony_duplikat["autorzy"]:
+                        znaleziony_duplikat["autorzy"].append(autor_clean)
+                    znaleziony_duplikat["historia_opisow"].append(opis_clean)
+                    
+                    st.success(f"Dziękujemy! Wygląda na to, że ten problem był już zgłoszony. Połączyliśmy Twoje zgłoszenie z istniejącym — zgłoszono je już {znaleziony_duplikat['licznik']} razy (Podniesiono priorytet na Wysoki)!")
+                else:
+                    nowy_wpis = {
+                        "id": len(st.session_state["bufor_zgloszen"]) + 1,
+                        "czas_pierwszego": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        "czas_ostatniego": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        "kategoria": typ_zgloszenia,
+                        "autorzy": [autor_clean],
+                        "opis": opis_clean,
+                        "status": "⏳ Oczekuje",
+                        "priorytet": "Normalny",
+                        "licznik": 1,
+                        "historia_opisow": [opis_clean]
+                    }
+                    st.session_state["bufor_zgloszen"].insert(0, nowy_wpis)
+                    st.success("Dziękujemy! Zgłoszenie zostało przekazane do bufora.")
 
-    if not st.session_state["bufor_zgloszen"]:
-        st.info("Brak zgłoszonych uwag w buforze.")
-    else:
-        for zgl in st.session_state["bufor_zgloszen"]:
-            with st.expander(f"#{zgl['id']} [{zgl['kategoria']}] od {zgl['autor']} — {zgl['czas']}"):
-                st.caption(f"Status: **{zgl['status']}**")
-                st.write(f"**Opis:** {zgl['opis']}")
+    # PODGLĄD I ZARZĄDZANIE BUFOREM - TYLKO DLA ADMINA
+    if st.session_state["zalogowany_admin"]:
+        st.divider()
+        col_adm_head, col_adm_btn = st.columns([4, 1])
+        with col_adm_head:
+            st.subheader(f"📥 Aktywny Bufor Zgłoszeń ({len(st.session_state['bufor_zgloszen'])}) — Tryb Admina")
+        with col_adm_btn:
+            if st.button("🚪 Wyloguj Admina", key="logout_admin_btn"):
+                st.session_state["zalogowany_admin"] = False
+                st.rerun()
+
+        if not st.session_state["bufor_zgloszen"]:
+            st.info("Brak zgłoszonych uwag w buforze.")
+        else:
+            if st.button("🗑️ Wyczyść cały bufor", key="clear_buffer_btn"):
+                st.session_state["bufor_zgloszen"] = []
+                st.rerun()
+
+            opcje_statusu = ["⏳ Oczekuje", "⚙️ W trakcie naprawy", "✅ Rozwiązany", "❌ Odrzucony / Duplikat"]
+
+            for zgl in st.session_state["bufor_zgloszen"]:
+                prio_badge = "🔥 WYSOKI PRIORYTET" if zgl["priorytet"] == "🔥 Wysoki Priorytet" or zgl["licznik"] > 1 else "NORMALNY"
+                licznik_info = f" (Zgłoszono {zgl['licznik']}x)" if zgl["licznik"] > 1 else ""
+                
+                with st.expander(f"#{zgl['id']} [{zgl['kategoria']}] — {prio_badge}{licznik_info} | Status: {zgl['status']}"):
+                    col_s1, col_s2 = st.columns([2.5, 1.5])
+                    
+                    with col_s1:
+                        st.caption(f"Pierwsze zgłoszenie: **{zgl['czas_pierwszego']}** | Ostatnie: **{zgl['czas_ostatniego']}**")
+                        st.caption(f"Autorzy: **{', '.join(zgl['autorzy'])}**")
+                        st.write(f"**Główny opis:** {zgl['opis']}")
+                        
+                        if len(zgl["historia_opisow"]) > 1:
+                            st.write("**Wszystkie powiązane treści zgłoszeń:**")
+                            for idx_h, h_txt in enumerate(zgl["historia_opisow"], start=1):
+                                st.caption(f"{idx_h}. {h_txt}")
+                    
+                    with col_s2:
+                        st.markdown("### 🛠️ Status zgłoszenia:")
+                        nowy_status = st.selectbox(
+                            "Zmień status:",
+                            opcje_statusu,
+                            index=opcje_statusu.index(zgl["status"]) if zgl["status"] in opcje_statusu else 0,
+                            key=f"status_select_{zgl['id']}"
+                        )
+                        if nowy_status != zgl["status"]:
+                            zgl["status"] = nowy_status
+                            st.toast(f"Zmieniono status zgłoszenia #{zgl['id']} na: {nowy_status}")
+                            st.rerun()
+
+# --- BEZWZGLĘDNIE UKRYTY STREFA-PRZYCISK W PRAWYM DOLNYM ROGU EKRANU ---
+
+st.markdown("""
+    <style>
+    /* Stylowanie OSTATNIEGO kontenera w głownym widoku strony */
+    div.block-container > div[data-testid="stElementContainer"]:last-child {
+        position: fixed !important;
+        bottom: 0px !important;
+        right: 0px !important;
+        width: 60px !important;
+        height: 60px !important;
+        z-index: 99999999 !important;
+        margin: 0 !important;
+        padding: 0 !important;
+    }
+
+    div.block-container > div[data-testid="stElementContainer"]:last-child button {
+        position: fixed !important;
+        bottom: 0px !important;
+        right: 0px !important;
+        width: 60px !important;
+        height: 60px !important;
+        opacity: 0.0 !important; /* 100% Niewidzialny dla zwykłego użytkownika */
+        background: transparent !important;
+        border: none !important;
+        box-shadow: none !important;
+        cursor: default !important;
+        z-index: 99999999 !important;
+        padding: 0 !important;
+        margin: 0 !important;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
+# Ten przycisk jest na samym dole skryptu i zostanie dopasowany przez CSS na 100% niewidzialny w prawym dolnym rogu
+if st.button("🔑", key="abs_bottom_right_admin_hotspot"):
+    dialog_logowania()
