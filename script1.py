@@ -28,14 +28,23 @@ if "zalogowany_admin" not in st.session_state:
 # --- STRUKTURA HISTORII ZMIAN (PATCH NOTES) ---
 HISTORIA_ZMIAN = [
     {
+        "wersja": "v1.5.1",
+        "data": "28 Września 2026",
+        "wazna": True,
+        "opis": "Relokacja przycisku logowania administratora do lewego dolnego rogu.",
+        "zmiany": [
+            "Przeniesiono dyskretny przycisk z symbolem kluczyka (🔑) do lewego dolnego rogu ekranu.",
+            "Stylizowany jako subtelny, półprzeźroczysty okrągły przycisk z podświetleniem po najechaniu."
+        ]
+    },
+    {
         "wersja": "v1.5.0",
         "data": "28 Września 2026",
         "wazna": True,
-        "opis": "Naprawa izolacji okna logowania oraz poprawne pozycjonowanie ukrytej strefy Admina.",
+        "opis": "Naprawa izolacji okna logowania oraz poprawne pozycjonowanie strefy Admina.",
         "zmiany": [
             "Usunięto błąd samoczynnego otwierania się popupu logowania po wysłaniu zgłoszenia przez użytkownika.",
-            "Przeniesiono ukryty przycisk na sam koniec drzewa DOM poza wszystkie kontenery.",
-            "Zastosowano bezwzględne pozycjonowanie fixed (bottom: 0, right: 0) oraz 100% niewidzialności (opacity: 0)."
+            "Zastosowano bezwzględne pozycjonowanie fixed niezależne od zakładek i kontenerów."
         ]
     },
     {
@@ -402,7 +411,7 @@ def pobierz_oferty_olx(fraza, kategorie_slugs, stany_olx, cena_min, cena_max, pa
     pasek_postepu.progress(100)
     return oferty, odrzucone_list, total_time_formatted
 
-# --- FUNKCJA DIALOGOWA LOGOWANIA (GWARANCJA BRAKU AUTO-OTWIERANIA) ---
+# --- FUNKCJA DIALOGOWA LOGOWANIA ---
 @st.dialog("🔐 Panel Logowania Administratora")
 def dialog_logowania():
     st.write("Wprowadź dane dostępowe, aby odblokować wgląd do bufora błędów:")
@@ -642,40 +651,52 @@ with tab_feedback:
                             st.toast(f"Zmieniono status zgłoszenia #{zgl['id']} na: {nowy_status}")
                             st.rerun()
 
-# --- BEZWZGLĘDNIE UKRYTY STREFA-PRZYCISK W PRAWYM DOLNYM ROGU EKRANU ---
+# --- PRZYCISK LOGOWANIA ADMINA W LEWYM DOLNYM ROGU EKRANU ---
+
+st.markdown('<span id="admin_left_anchor"></span>', unsafe_allow_html=True)
+if st.button("🔑", key="abs_bottom_left_admin_btn"):
+    dialog_logowania()
 
 st.markdown("""
     <style>
-    /* Stylowanie OSTATNIEGO kontenera w głownym widoku strony */
-    div.block-container > div[data-testid="stElementContainer"]:last-child {
+    /* Namierza kontener przycisku tuż obok znacznika anchor */
+    div:has(> span#admin_left_anchor) + div {
         position: fixed !important;
-        bottom: 0px !important;
-        right: 0px !important;
-        width: 60px !important;
-        height: 60px !important;
+        bottom: 15px !important;
+        left: 15px !important;
         z-index: 99999999 !important;
-        margin: 0 !important;
-        padding: 0 !important;
+        width: auto !important;
+        height: auto !important;
     }
 
-    div.block-container > div[data-testid="stElementContainer"]:last-child button {
+    /* Subtelny przycisk w lewym dolnym rogu */
+    div:has(> span#admin_left_anchor) + div button {
         position: fixed !important;
-        bottom: 0px !important;
-        right: 0px !important;
-        width: 60px !important;
-        height: 60px !important;
-        opacity: 0.0 !important; /* 100% Niewidzialny dla zwykłego użytkownika */
-        background: transparent !important;
-        border: none !important;
-        box-shadow: none !important;
-        cursor: default !important;
-        z-index: 99999999 !important;
+        bottom: 15px !important;
+        left: 15px !important;
+        width: 38px !important;
+        height: 38px !important;
+        border-radius: 50% !important;
+        opacity: 0.3 !important;
+        background-color: rgba(255, 255, 255, 0.08) !important;
+        border: 1px solid rgba(255, 255, 255, 0.2) !important;
+        font-size: 16px !important;
         padding: 0 !important;
-        margin: 0 !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        transition: all 0.25s ease-in-out !important;
+        z-index: 99999999 !important;
+        box-shadow: 0px 2px 6px rgba(0, 0, 0, 0.2) !important;
+    }
+
+    /* Podświetlenie po najechaniu myszką */
+    div:has(> span#admin_left_anchor) + div button:hover {
+        opacity: 1.0 !important;
+        background-color: #ff4b4b !important;
+        border-color: #ff4b4b !important;
+        box-shadow: 0px 4px 12px rgba(255, 75, 75, 0.5) !important;
+        transform: scale(1.08);
     }
     </style>
 """, unsafe_allow_html=True)
-
-# Ten przycisk jest na samym dole skryptu i zostanie dopasowany przez CSS na 100% niewidzialny w prawym dolnym rogu
-if st.button("🔑", key="abs_bottom_right_admin_hotspot"):
-    dialog_logowania()
