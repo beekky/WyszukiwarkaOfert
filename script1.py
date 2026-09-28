@@ -138,22 +138,22 @@ if "stop_requested" not in st.session_state:
 # --- PATCH NOTES ---
 HISTORIA_ZMIAN = [
     {
-        "wersja": "v2.5.0",
+        "wersja": "v2.6.0",
         "data": "28 Września 2026",
         "wazna": True,
-        "opis": "Implementacja 3-stopniowego mechanizmu URL Fallback i naprawa filtrów dla działu Motoryzacja.",
+        "opis": "Skanowanie w oparciu o obiekt JSON __NEXT_DATA__ oraz automatyczny Fallback Kategoriowy.",
         "zmiany": [
-            "Wprowadzono automatyczny rezerwowy retry ponawiający zapytanie bez parametru stanu w przypadku 0 wyników.",
-            "Naprawiono problem z brakiem wyników w Motoryzacji (np. Astra K) wywołany brakiem obsługi filter_enum_state przez OLX.",
-            "Dodano inteligentne dopasowanie generacji aut (K, J, H, C itp.) bez odrzucania ofert przy braku opisu."
+            "Wprowadzono bezpośredni odczyt listy ogłoszeń ze struktury __NEXT_DATA__ w kodzie OLX, uniezależniając aplikację od zmian układu HTML.",
+            "Dodano automatyczny mechanizm Category Fallback przekierowujący do serwisu ogólnego w razie braku wyników w danej podkategorii.",
+            "Uwzględniono specyfikację techniczną z parametrów ogłoszenia (np. oznaczenia generacji modeli) w algorytmie trafności."
         ]
     },
     {
-        "wersja": "v2.4.0",
+        "wersja": "v2.5.0",
         "data": "28 Września 2026",
         "wazna": True,
-        "opis": "Pełna obsługa modeli samochodów oraz wsparcie dla ogłoszeń Otomoto.",
-        "zmiany": ["Dodano pobieranie opisów dla samochodów przekierowujących do Otomoto."]
+        "opis": "Implementacja 3-stopniowego mechanizmu URL Fallback.",
+        "zmiany": ["Poprawka dołączania parametrów filtrów stanu."]
     }
 ]
 
@@ -190,7 +190,7 @@ KATEGORIE_OLX = {
 
 HTTP_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     "Accept-Language": "pl,en-US;q=0.7,en;q=0.3"
 }
 
@@ -222,7 +222,7 @@ def wyciagnij_nazwe_z_linku(url_lub_tekst):
 def parse_price(price_str):
     if not price_str:
         return 999999.0
-    cleaned = re.sub(r'[^\d,.]', '', price_str).replace(',', '.')
+    cleaned = re.sub(r'[^\d,.]', '', str(price_str)).replace(',', '.')
     try:
         return float(cleaned)
     except ValueError:
@@ -248,10 +248,10 @@ def analizuj_i_stworz_skrot_opisu(tekst_opisu):
     skrot = czysty[:800] + "\n\n[... ciąg dalszy w ogłoszeniu na OLX]" if len(czysty) > 800 else czysty
     return czy_uszkodzony, ostrzezenie, skrot, cechy
 
-# --- PRECYZYJNA ORAZ ELASTYCZNA WERYFIKACJA TRAFNOŚCI ---
-def czy_trafna_oferta(szukana_fraza, znaleziony_tytul, url="", tresc_opisu=""):
+# --- PRECYZYJNA WERYFIKACJA TRAFNOŚCI ---
+def czy_trafna_oferta(szukana_fraza, znaleziony_tytul, url="", tresc_opisu="", parametry_str=""):
     url_slug = re.sub(r'[^a-zA-Z0-9ąęłśćóżźĄĘŁŚĆÓŻŹ]', ' ', url).lower()
-    pelny_tekst = f"{znaleziony_tytul} {url_slug} {tresc_opisu}".lower()
+    pelny_tekst = f"{znaleziony_tytul} {url_slug} {tresc_opisu} {parametry_str}".lower()
     fraza_lower = szukana_fraza.lower()
 
     for smiec in SMIECI_BRANŻOWE:
@@ -262,22 +262,18 @@ def czy_trafna_oferta(szukana_fraza, znaleziony_tytul, url="", tresc_opisu=""):
     if not slowa_zapytania:
         return True
 
-    # Wyciągamy słowa kluczowe z wykluczeniem generycznych
     istotne_slowa = [s for s in slowa_zapytania if s not in GENERYCZNE_SLOWA]
 
     if istotne_slowa:
-        # Słowa wieloliterowe (np. "astra", "golf", "iphone")
         slowa_glowne = [s for s in istotne_slowa if len(s) > 1]
         if slowa_glowne:
             trafione_glowne = [s for s in slowa_glowne if s in pelny_tekst]
             if not trafione_glowne:
                 return False
 
-        # Słowa 1-literowe (np. "k" w "astra k", "v" w "golf v")
         pojedyncze_litery = [s for s in istotne_slowa if len(s) == 1]
         if pojedyncze_litery:
             for litera in pojedyncze_litery:
-                # Weryfikacja czy litera występuje jako osobny wyraz w tytule, slugu lub opisie
                 pattern = r'\b' + re.escape(litera) + r'\b'
                 if not re.search(pattern, pelny_tekst):
                     return False
@@ -285,7 +281,7 @@ def czy_trafna_oferta(szukana_fraza, znaleziony_tytul, url="", tresc_opisu=""):
     trafione_wszystkie = [s for s in slowa_zapytania if s in pelny_tekst]
     return (len(trafione_wszystkie) / len(slowa_zapytania)) >= 0.5
 
-# --- OBSŁUGA OPISÓW OLX ORAZ OTOMOTO ---
+# --- OBSŁUGA OPISÓW ZE STRUKTURY NEXT_DATA ORAZ OTOMOTO ---
 def pobierz_tresc_opisu_http(url):
     try:
         res = requests.get(url, headers=HTTP_HEADERS, timeout=6)
@@ -306,7 +302,7 @@ def pobierz_tresc_opisu_http(url):
                 except Exception:
                     pass
             
-            # 2. Otomoto - HTML / NEXT_DATA
+            # 2. Otomoto
             if "otomoto.pl" in url:
                 otomoto_desc = soup.find('div', {'data-testid': 'advert-description'}) or \
                                soup.find('div', class_=re.compile(r'description-content|ooa-1e9k97d'))
@@ -323,12 +319,68 @@ def pobierz_tresc_opisu_http(url):
         pass
     return "Brak treści opisu w ogłoszeniu."
 
+# --- EKSTRAKCJA OGŁOSZEŃ Z OBIEKTU JSON __NEXT_DATA__ ---
+def wyciągnij_ogloszenia_z_json(soup):
+    znalezione = []
+    next_data = soup.find('script', id='__NEXT_DATA__')
+    if not next_data or not next_data.string:
+        return znalezione
+
+    try:
+        data = json.loads(next_data.string)
+        page_props = data.get('props', {}).get('pageProps', {})
+        
+        # Szukanie listy ogłoszeń w strukturze Next.js
+        ads_list = page_props.get('data', {}).get('ads', []) or \
+                   page_props.get('ads', []) or \
+                   page_props.get('listing', {}).get('ads', [])
+
+        for ad in ads_list:
+            tytul = ad.get('title', '')
+            url_ad = ad.get('url', '')
+            if not tytul or not url_ad:
+                continue
+
+            # Cena
+            price_val = 0.0
+            price_str = "Zapytaj o cenę"
+            price_obj = ad.get('price', {})
+            if isinstance(price_obj, dict):
+                price_val = float(price_obj.get('value', 0.0) or 0.0)
+                price_str = price_obj.get('displayValue', f"{price_val:.0f} zł")
+            
+            # Parametry (model, stan, rok, paliwo itp.)
+            params = ad.get('params', [])
+            param_texts = []
+            if isinstance(params, list):
+                for p in params:
+                    if isinstance(p, dict):
+                        val_str = p.get('value', {})
+                        if isinstance(val_str, dict):
+                            val_str = val_str.get('label', '')
+                        param_texts.append(str(val_str))
+            
+            parametry_combined = " ".join(param_texts)
+
+            znalezione.append({
+                'tytul': tytul,
+                'url': url_ad if url_ad.startswith('http') else "https://www.olx.pl" + url_ad,
+                'cena_str': price_str,
+                'cena_val': price_val,
+                'parametry': parametry_combined,
+                'is_delivery': ad.get('delivery', {}).get('isDelivery', False)
+            })
+    except Exception:
+        pass
+
+    return znalezione
+
 def formatuj_czas(sekundy):
     s = int(sekundy)
     m, s = divmod(s, 60)
     return f"{m}m {s}s" if m > 0 else f"{s}s"
 
-# --- ZODPORNIONY SILNIK WYSZUKIWANIA Z AUTOMATYCZNYM URL FALLBACK ---
+# --- ODPOWIEDZIALNY SILNIK HYBRYDOWY ---
 def pobierz_oferty_olx(fraza, kategorie_slugs, stany_olx, cena_min, cena_max, pasek_postepu, tekst_statusu, stop_container):
     oferty, odrzucone_list, unikalne_linki = [], [], set()
     MAX_OFERT, MAX_STRON_PER_KAT = 100, 30
@@ -347,68 +399,60 @@ def pobierz_oferty_olx(fraza, kategorie_slugs, stany_olx, cena_min, cena_max, pa
     pasek_postepu.progress(5)
     start_time = time.time()
 
-    total_kategorii = len(kategorie_slugs)
+    # Zmiana: Jeśli kategoria to nie "oferty", dodajmy "oferty" jako rezerwowy fallback
+    slugs_do_przeszukania = list(kategorie_slugs)
+    if "oferty" not in slugs_do_przeszukania:
+        slugs_do_przeszukania.append("oferty")
 
-    for kat_idx, kategoria_slug in enumerate(kategorie_slugs, start=1):
+    total_kategorii = len(slugs_do_przeszukania)
+
+    for kat_idx, kategoria_slug in enumerate(slugs_do_przeszukania, start=1):
         if len(oferty) >= MAX_OFERT or st.session_state.get("stop_requested", False): break
 
         for strona in range(1, MAX_STRON_PER_KAT + 1):
             if len(oferty) >= MAX_OFERT or st.session_state.get("stop_requested", False): break
 
             elapsed_sec = time.time() - start_time
-            tekst_statusu.write(f"⚡ Kat. {kat_idx}/{total_kategorii} | Strona {strona} (znaleziono trafnych: {len(oferty)}) | ⏱️ {formatuj_czas(elapsed_sec)}")
+            tekst_statusu.write(f"⚡ Skanowanie kategorii ({kategoria_slug}) | Strona {strona} (znaleziono trafnych: {len(oferty)}) | ⏱️ {formatuj_czas(elapsed_sec)}")
 
-            # Wariant 1: Pełny URL z filtrami
-            olx_url = f"https://www.olx.pl/{kategoria_slug}/q-{olx_query}/?page={strona}&search%5Border%5D=filter_float_price%3Aasc{olx_state_param}{olx_price_param}"
+            # Wariant 1: URL z filtrem ceny
+            olx_url = f"https://www.olx.pl/{kategoria_slug}/q-{olx_query}/?page={strona}&search%5Border%5D=filter_float_price%3Aasc{olx_price_param}"
             
             try:
                 res = requests.get(olx_url, headers=HTTP_HEADERS, timeout=8)
-                soup = BeautifulSoup(res.text, 'html.parser')
-                cards = soup.select('div[data-cy="l-card"], div[data-testid="l-card"], [data-testid="ad-card"], article')
-
-                # Wariant 2 Fallback: Jeśli brak wyników (np. Motoryzacja odrzucająca filter_enum_state), spróbuj bez filtra stanu
-                if not cards and olx_state_param:
-                    olx_url_fallback = f"https://www.olx.pl/{kategoria_slug}/q-{olx_query}/?page={strona}&search%5Border%5D=filter_float_price%3Aasc{olx_price_param}"
-                    res = requests.get(olx_url_fallback, headers=HTTP_HEADERS, timeout=8)
-                    soup = BeautifulSoup(res.text, 'html.parser')
-                    cards = soup.select('div[data-cy="l-card"], div[data-testid="l-card"], [data-testid="ad-card"], article')
-
-                if not cards:
+                if res.status_code != 200:
                     break
 
-                for card in cards:
-                    if len(oferty) >= MAX_OFERT or st.session_state.get("stop_requested", False): break
+                soup = BeautifulSoup(res.text, 'html.parser')
+                
+                # 1. Ekstrakcja JSON z __NEXT_DATA__
+                json_ads = wyciągnij_ogloszenia_z_json(soup)
+                
+                if json_ads:
+                    for ad in json_ads:
+                        if len(oferty) >= MAX_OFERT or st.session_state.get("stop_requested", False): break
 
-                    title_elem = card.find(['h6', 'h4', 'h3']) or card.find(attrs={'data-testid': 'ad-title'})
-                    price_elem = card.find('p', {'data-testid': 'ad-price'}) or card.find(attrs={'data-cy': 'ad-price'}) or card.find(class_=re.compile(r'price'))
-                    link_elem = card.find('a', href=True)
-
-                    if title_elem and price_elem and link_elem:
-                        tytul = title_elem.get_text().strip()
-                        cena_str = price_elem.get_text().strip()
-                        cena_num = parse_price(cena_str)
-                        link = link_elem['href']
-                        if link and not link.startswith('http'): link = "https://www.olx.pl" + link
+                        tytul = ad['tytul']
+                        link = ad['url']
+                        cena_str = ad['cena_str']
+                        cena_num = ad['cena_val']
 
                         if link in unikalne_linki:
                             continue
 
-                        # Ścisłe filtrowanie po cenie po stronie Pythona (niezależnie od OLX)
                         if cena_min > 0 and cena_num < cena_min:
                             continue
                         if cena_max > 0 and cena_num > cena_max:
                             continue
 
-                        card_html_raw = str(card).lower()
-                        dostawa_info = "📦 Przesyłka OLX" if ("przesyłka olx" in card_html_raw or "kup z przesyłką" in card_html_raw) else "✉️ Dostawa prywatna / Odbiór"
-
                         tresc_opisu = pobierz_tresc_opisu_http(link)
 
-                        if not czy_trafna_oferta(fraza_clean, tytul, link, tresc_opisu):
+                        if not czy_trafna_oferta(fraza_clean, tytul, link, tresc_opisu, ad['parametry']):
                             odrzucone_list.append(f"{tytul} ({cena_str})")
                             continue
 
                         czy_uszkodzony, ostrzezenie_opis, skrot_opisu, cechy_z_opisu = analizuj_i_stworz_skrot_opisu(tresc_opisu)
+                        dostawa_info = "📦 Przesyłka OLX" if ad['is_delivery'] else "✉️ Dostawa prywatna / Odbiór"
 
                         unikalne_linki.add(link)
                         oferty.append({
@@ -423,6 +467,54 @@ def pobierz_oferty_olx(fraza, kategorie_slugs, stany_olx, cena_min, cena_max, pa
                             "cechy": cechy_z_opisu, 
                             "dostawa": dostawa_info
                         })
+
+                # 2. HTML Fallback (jeśli JSON w danym widoku był pusty)
+                else:
+                    cards = soup.select('div[data-cy="l-card"], div[data-testid="l-card"], [data-testid="ad-card"], article')
+                    if not cards:
+                        break
+
+                    for card in cards:
+                        if len(oferty) >= MAX_OFERT or st.session_state.get("stop_requested", False): break
+
+                        title_elem = card.find(['h6', 'h4', 'h3']) or card.find(attrs={'data-testid': 'ad-title'})
+                        price_elem = card.find('p', {'data-testid': 'ad-price'}) or card.find(attrs={'data-cy': 'ad-price'}) or card.find(class_=re.compile(r'price'))
+                        link_elem = card.find('a', href=True)
+
+                        if title_elem and price_elem and link_elem:
+                            tytul = title_elem.get_text().strip()
+                            cena_str = price_elem.get_text().strip()
+                            cena_num = parse_price(cena_str)
+                            link = link_elem['href']
+                            if link and not link.startswith('http'): link = "https://www.olx.pl" + link
+
+                            if link in unikalne_linki or (cena_min > 0 and cena_num < cena_min) or (cena_max > 0 and cena_num > cena_max):
+                                continue
+
+                            card_html_raw = str(card).lower()
+                            dostawa_info = "📦 Przesyłka OLX" if ("przesyłka olx" in card_html_raw or "kup z przesyłką" in card_html_raw) else "✉️ Dostawa prywatna / Odbiór"
+
+                            tresc_opisu = pobierz_tresc_opisu_http(link)
+
+                            if not czy_trafna_oferta(fraza_clean, tytul, link, tresc_opisu):
+                                odrzucone_list.append(f"{tytul} ({cena_str})")
+                                continue
+
+                            czy_uszkodzony, ostrzezenie_opis, skrot_opisu, cechy_z_opisu = analizuj_i_stworz_skrot_opisu(tresc_opisu)
+
+                            unikalne_linki.add(link)
+                            oferty.append({
+                                "źródło": "Otomoto" if "otomoto.pl" in link else "OLX", 
+                                "tytuł": tytul, 
+                                "cena_str": cena_str, 
+                                "cena_val": cena_num,
+                                "link": link, 
+                                "ostrzezenie": ostrzezenie_opis, 
+                                "czy_uszkodzony": czy_uszkodzony,
+                                "skrot_opisu": skrot_opisu, 
+                                "cechy": cechy_z_opisu, 
+                                "dostawa": dostawa_info
+                            })
 
                 pasek_postepu.progress(min(98, int((kat_idx / total_kategorii) * 100)))
             except Exception:
