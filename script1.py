@@ -18,7 +18,134 @@ import json
 import os
 from datetime import datetime
 
-st.set_page_config(page_title="Wyszukiwarka Ofert OLX", layout="wide")
+st.set_page_config(page_title="Wyszukiwarka Ofert OLX", page_icon="🔍", layout="wide")
+
+# --- CUSTOM CSS: PROFESJONALNY MOTYW GRAFICZNY ---
+st.markdown("""
+    <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+    
+    html, body, [class*="css"] {
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    
+    /* Hero Header */
+    .hero-container {
+        padding: 1.5rem 0 1rem 0;
+        margin-bottom: 1rem;
+    }
+    .hero-title {
+        font-size: 2.3rem;
+        font-weight: 800;
+        letter-spacing: -0.02em;
+        background: linear-gradient(135deg, #38bdf8 0%, #818cf8 50%, #c084fc 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        margin-bottom: 0.3rem;
+    }
+    .hero-subtitle {
+        font-size: 1.05rem;
+        color: #94a3b8;
+        font-weight: 400;
+    }
+
+    /* Tab Bar Customization */
+    div[data-baseweb="tab-list"] {
+        gap: 10px !important;
+        border-bottom: 1px solid #334155 !important;
+        padding-bottom: 8px !important;
+    }
+    button[data-baseweb="tab"] {
+        border-radius: 10px !important;
+        padding: 8px 20px !important;
+        font-weight: 600 !important;
+        font-size: 0.95rem !important;
+        color: #94a3b8 !important;
+        background-color: rgba(30, 41, 59, 0.4) !important;
+        border: 1px solid transparent !important;
+        transition: all 0.2s ease !important;
+    }
+    button[aria-selected="true"] {
+        background-color: #1e293b !important;
+        color: #38bdf8 !important;
+        border: 1px solid #3b82f6 !important;
+        box-shadow: 0 4px 12px rgba(59, 130, 246, 0.15) !important;
+    }
+
+    /* Buttons Styling */
+    div.stButton > button {
+        border-radius: 10px !important;
+        font-weight: 600 !important;
+        padding: 10px 24px !important;
+        transition: all 0.2s ease-in-out !important;
+    }
+    div.stButton > button[kind="primary"], div.stButton > button:first-child {
+        background: linear-gradient(135deg, #4f46e5 0%, #3b82f6 100%) !important;
+        color: white !important;
+        border: none !important;
+        box-shadow: 0 4px 14px rgba(79, 70, 229, 0.3) !important;
+    }
+    div.stButton > button:hover {
+        transform: translateY(-1px) !important;
+        box-shadow: 0 6px 20px rgba(59, 130, 246, 0.4) !important;
+    }
+
+    /* Custom Offer Card */
+    .offer-card {
+        background-color: #1e293b;
+        border: 1px solid #334155;
+        border-radius: 14px;
+        padding: 20px;
+        margin-bottom: 16px;
+        transition: all 0.25s ease-in-out;
+    }
+    .offer-card:hover {
+        border-color: #6366f1;
+        box-shadow: 0 8px 25px rgba(99, 102, 241, 0.15);
+        transform: translateY(-2px);
+    }
+    .offer-rank {
+        font-size: 1.3rem;
+        font-weight: 800;
+        color: #818cf8;
+    }
+    .price-badge {
+        font-size: 1.35rem;
+        font-weight: 800;
+        color: #10b981;
+        background: rgba(16, 185, 129, 0.12);
+        padding: 6px 14px;
+        border-radius: 10px;
+        border: 1px solid rgba(16, 185, 129, 0.3);
+        display: inline-block;
+    }
+    .tag-pill {
+        display: inline-block;
+        font-size: 0.82rem;
+        padding: 4px 12px;
+        border-radius: 20px;
+        background: #334155;
+        color: #cbd5e1;
+        margin-right: 6px;
+        margin-top: 6px;
+        font-weight: 500;
+    }
+    .tag-delivery {
+        background: rgba(14, 165, 233, 0.15);
+        color: #38bdf8;
+        border: 1px solid rgba(14, 165, 233, 0.3);
+    }
+    .warning-box {
+        background-color: rgba(239, 68, 68, 0.12);
+        border: 1px solid rgba(239, 68, 68, 0.3);
+        color: #fca5a5;
+        padding: 10px 14px;
+        border-radius: 8px;
+        font-size: 0.9rem;
+        margin-top: 8px;
+    }
+    </style>
+""", unsafe_allow_html=True)
 
 # --- OBSŁUGA TRWAŁEGO ZAPISU I ODCZYTU Z PLIKU JSON ---
 PLIK_BUFORA = "zgloszenia_bufor.json"
@@ -51,13 +178,15 @@ if "zalogowany_admin" not in st.session_state:
 # --- STRUKTURA HISTORII ZMIAN (PATCH NOTES) ---
 HISTORIA_ZMIAN = [
     {
-        "wersja": "v1.6.1",
+        "wersja": "v1.7.0",
         "data": "28 Września 2026",
         "wazna": True,
-        "opis": "Niezawodne pozycjonowanie przycisku admina w lewym dolnym rogu.",
+        "opis": "Kompletna przebudowa szaty graficznej na nowoczesny styl e-commerce / SaaS.",
         "zmiany": [
-            "Zastosowano JavaScript MutationObserver wymuszający pozycjonowanie przycisku logowania (🔑) w lewym dolnym rogu okna przeglądarki.",
-            "Wyeliminowano błędy ponownego renderowania kontenerów Streamlit."
+            "Wprowadzono dedykowane karty ofert z cieniami i animacją najazdu (Hover elevation).",
+            "Stworzono Hero Banner z nowoczesną tytulaturą i podtytułem.",
+            "Stylizowane, zaokrąglone zakładki nawigacyjne oraz wyróżnione badges cenowe i dostaw.",
+            "Przebudowano odznaki ostrzeżeń i podgląd opisu w nowoczesne pigułki (pills)."
         ]
     },
     {
@@ -131,7 +260,6 @@ KATEGORIE_OLX = {
 }
 
 def czy_podobne_zgloszenie(tekst1, tekst2, kategoria1, kategoria2):
-    """Sprawdza czy dwa zgłoszenia dotyczą tego samego problemu."""
     if kategoria1 != kategoria2:
         return False
     
@@ -151,7 +279,6 @@ def czy_podobne_zgloszenie(tekst1, tekst2, kategoria1, kategoria2):
     return podobienstwo > 0.3 or " ".join(s1_filtr) in " ".join(s2_filtr) or " ".join(s2_filtr) in " ".join(s1_filtr)
 
 def wyciagnij_nazwe_z_linku(url_lub_tekst):
-    """Pobiera tytuł ze strony sklepu, jeśli podano link."""
     if url_lub_tekst.startswith("http://") or url_lub_tekst.startswith("https://"):
         try:
             headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
@@ -219,7 +346,7 @@ def wykryj_forme_dostawy(card, tresc_opisu):
     if ma_przesylke_olx:
         formy.append("📦 Przesyłka OLX")
     elif ma_inna_wysylke:
-        formy.append("✉️ Wysyłka prywatna (bez OLX)")
+        formy.append("✉️ Wysyłka prywatna")
         
     if ma_odbior_osobisty:
         formy.append("🤝 Odbiór osobisty")
@@ -443,9 +570,13 @@ def dialog_logowania():
         if st.button("Anuluj", use_container_width=True, key="dialog_btn_cancel"):
             st.rerun()
 
-# --- INTERFEJS APLIKACJI ---
-
-st.title("🔍 Porównywarka Ofert OLX")
+# --- HERO NAGŁÓWEK ---
+st.markdown("""
+    <div class="hero-container">
+        <div class="hero-title">🔍 Porównywarka Ofert OLX</div>
+        <div class="hero-subtitle">Inteligentna wyszukiwarka okazji z filtrowaniem opisów, weryfikacją wad i blokadą reklam.</div>
+    </div>
+""", unsafe_allow_html=True)
 
 tab_search, tab_patch_notes, tab_feedback = st.tabs([
     "🔍 Wyszukiwarka Ofert", 
@@ -455,9 +586,8 @@ tab_search, tab_patch_notes, tab_feedback = st.tabs([
 
 # === ZAKŁADKA 1: WYSZUKIWARKA ===
 with tab_search:
-    st.write("Wklej link ze sklepu lub wpisz nazwę przedmiotu ręcznie.")
-
-    input_data = st.text_input("Link lub nazwa przedmiotu:", placeholder="np. https://... lub Rower Kross Hexagon 3.0")
+    st.markdown("### 🎯 Parametry Szukania")
+    input_data = st.text_input("Link ze sklepu lub nazwa przedmiotu:", placeholder="np. https://... lub Rower Kross Hexagon 3.0")
 
     col_cat, col_f1, col_c1, col_c2 = st.columns([2.5, 2, 1, 1])
 
@@ -470,11 +600,11 @@ with tab_search:
     with col_f1:
         stany_olx = st.multiselect("Stan przedmiotu:", ["Nowe", "Używane", "Uszkodzone"], default=["Nowe", "Używane"])
     with col_c1:
-        cena_min = st.number_input("Cena minimalna (PLN):", min_value=0, value=0, step=50, help="Odrzuca drobne akcesoria i części")
+        cena_min = st.number_input("Cena min (PLN):", min_value=0, value=0, step=50, help="Odrzuca drobne akcesoria i części")
     with col_c2:
-        cena_max = st.number_input("Cena maksymalna (PLN, 0 = brak):", min_value=0, value=0, step=50)
+        cena_max = st.number_input("Cena max (PLN, 0 = brak):", min_value=0, value=0, step=50)
 
-    if st.button("Szukaj najtańszych ofert na OLX"):
+    if st.button("🚀 Szukaj najtańszych ofert na OLX"):
         if not input_data.strip():
             st.warning("Proszę wpisać frazę lub wkleić link.")
         elif not wybrane_kategorie_nazwy:
@@ -489,7 +619,7 @@ with tab_search:
                 kategorie_slugs = [KATEGORIE_OLX[k] for k in wybrane_kategorie_nazwy]
                 opis_kat = ", ".join(wybrane_kategorie_nazwy)
             
-            st.info(f"Przeszukuję kategorie (**{opis_kat}**) na OLX dla frazy: **{szukana_fraza}** (Zakres cen: {cena_min} zł - {cena_max if cena_max > 0 else 'brak limitu'} zł)")
+            st.info(f"🔎 Przeszukuję kategorie (**{opis_kat}**) dla frazy: **{szukana_fraza}** (Cena: {cena_min} zł - {cena_max if cena_max > 0 else 'brak limitu'} zł)")
             
             pasek = st.progress(0)
             status = st.empty()
@@ -505,31 +635,36 @@ with tab_search:
             if not wyniki:
                 st.error("Nie znaleziono pasujących ofert w podanym zakresie cenowym.")
             else:
-                st.success(f"Znaleziono {len(wyniki)} trafnych ofert na OLX w czasie {czas_pracy}! Posortowano od najniższej ceny:")
+                st.success(f"✨ Znaleziono {len(wyniki)} trafnych ofert na OLX w czasie {czas_pracy}! Posortowano od najniższej ceny:")
                 
                 for idx, o in enumerate(wyniki, start=1):
-                    col1, col2, col3, col4 = st.columns([1, 4.5, 2, 2])
-                    with col1:
-                        st.markdown(f"### #{idx}")
+                    col_rank, col_main, col_price, col_btn = st.columns([0.8, 5, 2.2, 2])
+                    
+                    with col_rank:
+                        st.markdown(f"<div class='offer-rank'>#{idx}</div>", unsafe_allow_html=True)
                         st.caption(f"**{o['źródło']}**")
-                    with col2:
-                        st.write(f"**{o['tytuł']}**")
+                    
+                    with col_main:
+                        st.markdown(f"#### {o['tytuł']}")
                         
-                        st.caption(f"🚚 **Dostawa:** {o['dostawa']}")
-                        
-                        if o['cechy']:
-                            st.markdown(" ".join([f"`{c}`" for c in o['cechy']]))
+                        # Tagi dostawy i cech
+                        tags_html = f"<span class='tag-pill tag-delivery'>🚚 {o['dostawa']}</span>"
+                        for c in o['cechy']:
+                            tags_html += f"<span class='tag-pill'>{c}</span>"
+                        st.markdown(tags_html, unsafe_allow_html=True)
 
                         with st.expander("📄 Szczegółowy podgląd opisu"):
                             st.text(o['skrot_opisu'])
 
                         if o['ostrzezenie']:
-                            st.error(o['ostrzezenie'])
+                            st.markdown(f"<div class='warning-box'>{o['ostrzezenie']}</div>", unsafe_allow_html=True)
 
-                    with col3:
-                        st.markdown(f"💰 **{o['cena_str']}**")
-                    with col4:
-                        st.link_button("Zobacz ofertę", o['link'])
+                    with col_price:
+                        st.markdown(f"<div class='price-badge'>💰 {o['cena_str']}</div>", unsafe_allow_html=True)
+                    
+                    with col_btn:
+                        st.link_button("Zobacz ofertę ↗", o['link'], use_container_width=True)
+                    
                     st.divider()
 
             if odrzucone:
@@ -667,8 +802,7 @@ with tab_feedback:
                             st.toast(f"Zmieniono status zgłoszenia #{zgl['id']} na: {nowy_status}")
                             st.rerun()
 
-# --- BEZWZGLĘDNIE NIEZAWODNE POZYCJONOWANIE PRZYCISKU ADMINA W LEWYM DOLNYM ROGU (JAVASCRIPT) ---
-
+# --- PRZYCISK LOGOWANIA ADMINA ---
 if st.button("🔑", key="left_corner_admin_key"):
     dialog_logowania()
 
