@@ -131,16 +131,22 @@ PLIK_PATCH_NOTES = "patch_notes.json"
 
 DOMYSLNA_HISTORIA_ZMIAN = [
     {
+        "wersja": "v3.3.0",
+        "data": "28 Września 2026",
+        "wazna": True,
+        "opis": "Dedykowany multi-source ekstraktor cen dla kategorii Motoryzacja i ogłoszeń Otomoto.",
+        "zmiany": [
+            "Wprowadzono funkcję wyciagnij_cene(item) skanującą główne struktury API, tablicę parametrów technicznych (params) oraz etykiety cenowe.",
+            "Naprawiono problem z ukrywaniem/brakiem cen w ogłoszeniach motoryzacyjnych przekierowywanych z Otomoto.",
+            "Gwarancja poprawnego wyświetlania wartości cenowych dla wszystkich znalezionych ofert."
+        ]
+    },
+    {
         "wersja": "v3.2.0",
         "data": "28 Września 2026",
         "wazna": True,
-        "opis": "Architektura In-Browser Session Fetch – całkowita eliminacja blokad Cloudflare.",
-        "zmiany": [
-            "Wprowadzono wykonywanie zapytań API (window.fetch) bezpośrednio wewnątrz aktywnej sesji przeglądarki Playwright.",
-            "Bypass blokad Cloudflare/403/429 dzięki pełnym ciasteczkom sesyjnym i natywnej identyfikacji przeglądarki.",
-            "Błyskawiczne pobieranie pełnych treści opisów z natywnego endpointu per-offer.",
-            "Gwarantowana stabilność wyszukiwania dla dowolnych fraz (np. opel astra, iphone, rower kross)."
-        ]
+        "opis": "Architektura In-Browser Session Fetch.",
+        "zmiany": ["Zapobieganie blokadom Cloudflare."]
     },
     {
         "wersja": "v3.1.0",
@@ -148,13 +154,6 @@ DOMYSLNA_HISTORIA_ZMIAN = [
         "wazna": True,
         "opis": "Naprawa pobierania opisów oraz gruntowne czyszczenie kodu.",
         "zmiany": ["Usunięcie zbędnych funkcji i optymalizacja pamięci."]
-    },
-    {
-        "wersja": "v3.0.0",
-        "data": "28 Września 2026",
-        "wazna": True,
-        "opis": "Playwright Native Single-Pass Engine.",
-        "zmiany": ["Zaimplementowano automatyczny fallback dla złożonych nazw przedmiotów."]
     },
     {
         "wersja": "v1.0.0",
@@ -265,6 +264,45 @@ def parse_price(price_str):
     except ValueError:
         return 0.0
 
+# --- EKSPLI CYTNY, WIELOWARSTWOWY EKSTRAKTOR CEN ---
+def wyciagnij_cene(item):
+    price_val = 0.0
+    price_str = ""
+
+    # 1. Sprawdź główny obiekt 'price'
+    price_obj = item.get('price')
+    if isinstance(price_obj, dict):
+        raw_val = price_obj.get('value') or price_obj.get('amount')
+        if raw_val is not None:
+            price_val = parse_price(raw_val)
+        price_str = price_obj.get('displayValue') or price_obj.get('label') or ""
+
+    # 2. Przeszukaj listę 'params' (często w Motoryzacji i Otomoto cena jest w params pod kluczem 'price')
+    params = item.get('params', [])
+    if isinstance(params, list):
+        for p in params:
+            if isinstance(p, dict) and p.get('key') in ['price', 'cena']:
+                v_obj = p.get('value', {})
+                if isinstance(v_obj, dict):
+                    if not price_str:
+                        price_str = v_obj.get('label', '')
+                    if price_val == 0.0:
+                        price_val = parse_price(v_obj.get('value') or v_obj.get('key') or 0.0)
+                elif isinstance(v_obj, (int, float, str)):
+                    if price_val == 0.0:
+                        price_val = parse_price(v_obj)
+
+    # 3. Jeśli mamy cenę numeryczną, ale brak sformatowanego tekstu
+    if price_val == 0.0 and price_str:
+        price_val = parse_price(price_str)
+
+    if not price_str and price_val > 0:
+        price_str = f"{int(price_val):,} zł".replace(",", " ")
+    elif not price_str:
+        price_str = "Zapytaj o cenę"
+
+    return price_val, price_str
+
 def analizuj_i_stworz_skrot_opisu(tekst_opisu):
     if not tekst_opisu or tekst_opisu.strip() in ["Brak treści opisu w ogłoszeniu.", "Brak podglądu opisu."]:
         return False, "", "Brak treści opisu w ogłoszeniu.", []
@@ -316,7 +354,7 @@ def formatuj_czas(sekundy):
     m, s = divmod(s, 60)
     return f"{m}m {s}s" if m > 0 else f"{s}s"
 
-# --- SILNIK SKANUJĄCY Z BEZPIECZNĄ SESJĄ PRZEGLĄDARKI (IN-BROWSER FETCH) ---
+# --- SILNIK SKANUJĄCY IN-BROWSER FETCH Z POPRAWNYM WYCIĄGANIEM CEN ---
 def pobierz_oferty_olx(fraza, kategorie_slugs, stany_olx, cena_min, cena_max, pasek_postepu, tekst_statusu, stop_container):
     oferty, odrzucone = [], []
     unikalne_linki = set()
@@ -325,7 +363,7 @@ def pobierz_oferty_olx(fraza, kategorie_slugs, stany_olx, cena_min, cena_max, pa
 
     fraza_clean = re.sub(r'\s+', ' ', fraza.strip())
 
-    tekst_statusu.write("⚡ Tworzenie bezpiecznej sesji przeglądarki (Bypass Cloudflare)...")
+    tekst_statusu.write("⚡ Tworzenie bezpiecznej sesji przeglądarki...")
     pasek_postepu.progress(10)
 
     try:
@@ -347,7 +385,6 @@ def pobierz_oferty_olx(fraza, kategorie_slugs, stany_olx, cena_min, cena_max, pa
             page = context.new_page()
             page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
 
-            # Nawigacja wstępna po ciasteczka sesyjne
             try:
                 page.goto("https://www.olx.pl/", wait_until="commit", timeout=12000)
                 time.sleep(0.8)
@@ -361,7 +398,7 @@ def pobierz_oferty_olx(fraza, kategorie_slugs, stany_olx, cena_min, cena_max, pa
                 if uproszczona not in frazes_to_try:
                     frazes_to_try.append(uproszczona)
 
-            for f_idx, current_fraza in enumerate(frazes_to_try):
+            for current_fraza in frazes_to_try:
                 if oferty or st.session_state.get("stop_requested", False):
                     break
 
@@ -372,7 +409,7 @@ def pobierz_oferty_olx(fraza, kategorie_slugs, stany_olx, cena_min, cena_max, pa
                         break
 
                     elapsed_sec = time.time() - start_time
-                    tekst_statusu.write(f"⚡ Pobieranie ofert (In-Browser Session) | Znaleziono trafnych: {len(oferty)} | ⏱️ {formatuj_czas(elapsed_sec)}")
+                    tekst_statusu.write(f"⚡ Pobieranie ofert i cen | Znaleziono trafnych: {len(oferty)} | ⏱️ {formatuj_czas(elapsed_sec)}")
 
                     api_rel_url = f"/api/v1/offers/?query={query_encoded}&offset={offset}&limit=40"
                     if cena_min > 0:
@@ -380,7 +417,6 @@ def pobierz_oferty_olx(fraza, kategorie_slugs, stany_olx, cena_min, cena_max, pa
                     if cena_max > 0:
                         api_rel_url += f"&filter_float_price:to={cena_max}"
 
-                    # Pobranie JSON bezpośrednio w kontekście przeglądarki (omija WAF)
                     fetch_js = f"""
                     async () => {{
                         try {{
@@ -415,16 +451,15 @@ def pobierz_oferty_olx(fraza, kategorie_slugs, stany_olx, cena_min, cena_max, pa
                         if link in unikalne_linki:
                             continue
 
-                        price_obj = item.get('price', {})
-                        price_val = float(price_obj.get('value', 0.0) or 0.0) if isinstance(price_obj, dict) else 0.0
-                        price_str = price_obj.get('displayValue', f"{price_val:.0f} zł") if isinstance(price_obj, dict) else f"{price_val:.0f} zł"
+                        # NIEZAWODNY ODZYT CENY
+                        price_val, price_str = wyciagnij_cene(item)
 
-                        if cena_min > 0 and price_val < cena_min and price_val > 0:
+                        if cena_min > 0 and price_val > 0 and price_val < cena_min:
                             continue
                         if cena_max > 0 and price_val > cena_max:
                             continue
 
-                        # Odczyt pełnego opisu – z obiekty zbiorczego lub per-offer API w przeglądarce
+                        # Odczyt pełnego opisu
                         desc_raw = item.get('description', '')
                         if desc_raw:
                             tresc_opisu = BeautifulSoup(desc_raw, 'html.parser').get_text(separator="\n").strip()
@@ -654,7 +689,7 @@ with tab_patch_notes:
     if st.session_state["zalogowany_admin"]:
         with st.expander("➕ Dodaj nową wersję Patch Notes (Tryb Admina)"):
             with st.form("formularz_patch_note", clear_on_submit=True):
-                wersja_in = st.text_input("Numer wersji:", placeholder="np. v3.3.0")
+                wersja_in = st.text_input("Numer wersji:", placeholder="np. v3.4.0")
                 opis_in = st.text_input("Krótki opis wydania:", placeholder="np. Poprawa wydajności")
                 zmiany_raw = st.text_area("Lista zmian (każda w nowej linii):", placeholder="Wprowadzono zmianę X")
                 wazna_in = st.checkbox("Ważna wersja (Major Release)", value=True)
