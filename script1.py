@@ -14,13 +14,36 @@ from playwright.sync_api import sync_playwright
 import urllib.parse
 import re
 import time
+import json
+import os
 from datetime import datetime
 
 st.set_page_config(page_title="Wyszukiwarka Ofert OLX", layout="wide")
 
+# --- OBSŁUGA TRWAŁEGO ZAPISU I ODCZYTU Z PLIKU JSON ---
+PLIK_BUFORA = "zgloszenia_bufor.json"
+
+def wczytaj_bufor_z_pliku():
+    """Wczytuje zgłoszenia z pliku JSON przy uruchomieniu aplikacji."""
+    if os.path.exists(PLIK_BUFORA):
+        try:
+            with open(PLIK_BUFORA, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return []
+    return []
+
+def zapisz_bufor_do_pliku():
+    """Zapisuje aktualny stan bufora z session_state do pliku JSON."""
+    try:
+        with open(PLIK_BUFORA, "w", encoding="utf-8") as f:
+            json.dump(st.session_state["bufor_zgloszen"], f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        st.error(f"Błąd zapisu bufora do pliku: {e}")
+
 # --- INICJALIZACJA SESSION STATE ---
 if "bufor_zgloszen" not in st.session_state:
-    st.session_state["bufor_zgloszen"] = []
+    st.session_state["bufor_zgloszen"] = wczytaj_bufor_z_pliku()
 
 if "zalogowany_admin" not in st.session_state:
     st.session_state["zalogowany_admin"] = False
@@ -28,23 +51,22 @@ if "zalogowany_admin" not in st.session_state:
 # --- STRUKTURA HISTORII ZMIAN (PATCH NOTES) ---
 HISTORIA_ZMIAN = [
     {
+        "wersja": "v1.6.0",
+        "data": "28 Września 2026",
+        "wazna": True,
+        "opis": "Trwały zapis bufora zgłoszeń do pliku JSON.",
+        "zmiany": [
+            "Zgłoszenia użytkowników i zmiana statusów są teraz trwale zapisywane w pliku zgloszenia_bufor.json.",
+            "Dane nie giną przy aktualizacji wersji, restarcie serwera czy przeładowaniu strony."
+        ]
+    },
+    {
         "wersja": "v1.5.1",
         "data": "28 Września 2026",
         "wazna": True,
         "opis": "Relokacja przycisku logowania administratora do lewego dolnego rogu.",
         "zmiany": [
-            "Przeniesiono dyskretny przycisk z symbolem kluczyka (🔑) do lewego dolnego rogu ekranu.",
-            "Stylizowany jako subtelny, półprzeźroczysty okrągły przycisk z podświetleniem po najechaniu."
-        ]
-    },
-    {
-        "wersja": "v1.5.0",
-        "data": "28 Września 2026",
-        "wazna": True,
-        "opis": "Naprawa izolacji okna logowania oraz poprawne pozycjonowanie strefy Admina.",
-        "zmiany": [
-            "Usunięto błąd samoczynnego otwierania się popupu logowania po wysłaniu zgłoszenia przez użytkownika.",
-            "Zastosowano bezwzględne pozycjonowanie fixed niezależne od zakładek i kontenerów."
+            "Przeniesiono dyskretny przycisk z symbolem kluczyka (🔑) do lewego dolnego rogu ekranu."
         ]
     },
     {
@@ -65,16 +87,6 @@ HISTORIA_ZMIAN = [
         "zmiany": [
             "Ukryto podgląd bufora błędów dla zwykłych użytkowników.",
             "Dodano okno popup z logowaniem (login: admin, hasło: admin)."
-        ]
-    },
-    {
-        "wersja": "v1.1.0",
-        "data": "28 Września 2026",
-        "wazna": True,
-        "opis": "Oficjalna wersja stabilna z natywnymi zakładkami i skanowaniem opisów.",
-        "zmiany": [
-            "Przeszukiwanie opisu weryfikujące tytuł, slug oraz treść pod kątem szukanej frazy.",
-            "Agresywna blokada reklam i trackerów zwiększająca wydajność skanowania."
         ]
     }
 ]
@@ -584,6 +596,7 @@ with tab_feedback:
                         znaleziony_duplikat["autorzy"].append(autor_clean)
                     znaleziony_duplikat["historia_opisow"].append(opis_clean)
                     
+                    zapisz_bufor_do_pliku()
                     st.success(f"Dziękujemy! Wygląda na to, że ten problem był już zgłoszony. Połączyliśmy Twoje zgłoszenie z istniejącym — zgłoszono je już {znaleziony_duplikat['licznik']} razy (Podniesiono priorytet na Wysoki)!")
                 else:
                     nowy_wpis = {
@@ -599,6 +612,7 @@ with tab_feedback:
                         "historia_opisow": [opis_clean]
                     }
                     st.session_state["bufor_zgloszen"].insert(0, nowy_wpis)
+                    zapisz_bufor_do_pliku()
                     st.success("Dziękujemy! Zgłoszenie zostało przekazane do bufora.")
 
     # PODGLĄD I ZARZĄDZANIE BUFOREM - TYLKO DLA ADMINA
@@ -617,6 +631,7 @@ with tab_feedback:
         else:
             if st.button("🗑️ Wyczyść cały bufor", key="clear_buffer_btn"):
                 st.session_state["bufor_zgloszen"] = []
+                zapisz_bufor_do_pliku()
                 st.rerun()
 
             opcje_statusu = ["⏳ Oczekuje", "⚙️ W trakcie naprawy", "✅ Rozwiązany", "❌ Odrzucony / Duplikat"]
@@ -648,6 +663,7 @@ with tab_feedback:
                         )
                         if nowy_status != zgl["status"]:
                             zgl["status"] = nowy_status
+                            zapisz_bufor_do_pliku()
                             st.toast(f"Zmieniono status zgłoszenia #{zgl['id']} na: {nowy_status}")
                             st.rerun()
 
