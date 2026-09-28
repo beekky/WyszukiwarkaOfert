@@ -138,22 +138,22 @@ if "stop_requested" not in st.session_state:
 # --- PATCH NOTES ---
 HISTORIA_ZMIAN = [
     {
-        "wersja": "v2.4.0",
+        "wersja": "v2.5.0",
         "data": "28 Września 2026",
         "wazna": True,
-        "opis": "Pełna obsługa jednoliterałowych modeli (np. Astra K) oraz wsparcie dla ogłoszeń Otomoto w Motoryzacji.",
+        "opis": "Implementacja 3-stopniowego mechanizmu URL Fallback i naprawa filtrów dla działu Motoryzacja.",
         "zmiany": [
-            "Naprawiono filtr weryfikujący słowa – zachowano jednoliterałowe oznaczenia generacji modeli (K, J, H, C, 3 itp.).",
-            "Dodano pobieranie opisów dla samochodów przekierowujących z OLX do Otomoto.",
-            "Rozszerzono selektory kart i parsowanie cen dla kategorii Motoryzacja."
+            "Wprowadzono automatyczny rezerwowy retry ponawiający zapytanie bez parametru stanu w przypadku 0 wyników.",
+            "Naprawiono problem z brakiem wyników w Motoryzacji (np. Astra K) wywołany brakiem obsługi filter_enum_state przez OLX.",
+            "Dodano inteligentne dopasowanie generacji aut (K, J, H, C itp.) bez odrzucania ofert przy braku opisu."
         ]
     },
     {
-        "wersja": "v2.3.0",
+        "wersja": "v2.4.0",
         "data": "28 Września 2026",
         "wazna": True,
-        "opis": "Zaostrzenie algorytmu trafności i naprawa dekodowania opisów ogłoszeń.",
-        "zmiany": ["Wprowadzono pobieranie opisu ogłoszenia z natywnego obiektu __NEXT_DATA__ (JSON)."]
+        "opis": "Pełna obsługa modeli samochodów oraz wsparcie dla ogłoszeń Otomoto.",
+        "zmiany": ["Dodano pobieranie opisów dla samochodów przekierowujących do Otomoto."]
     }
 ]
 
@@ -245,10 +245,10 @@ def analizuj_i_stworz_skrot_opisu(tekst_opisu):
         cechy.append("📦 Pełen zestaw")
 
     czysty = tekst_opisu.strip()
-    skrot = czysty[:800] + "\n\n[... ciąg dalszy w ogłoszeniu]" if len(czysty) > 800 else czysty
+    skrot = czysty[:800] + "\n\n[... ciąg dalszy w ogłoszeniu na OLX]" if len(czysty) > 800 else czysty
     return czy_uszkodzony, ostrzezenie, skrot, cechy
 
-# --- PRECYZYJNA WERYFIKACJA TRAFNOŚCI ---
+# --- PRECYZYJNA ORAZ ELASTYCZNA WERYFIKACJA TRAFNOŚCI ---
 def czy_trafna_oferta(szukana_fraza, znaleziony_tytul, url="", tresc_opisu=""):
     url_slug = re.sub(r'[^a-zA-Z0-9ąęłśćóżźĄĘŁŚĆÓŻŹ]', ' ', url).lower()
     pelny_tekst = f"{znaleziony_tytul} {url_slug} {tresc_opisu}".lower()
@@ -258,17 +258,29 @@ def czy_trafna_oferta(szukana_fraza, znaleziony_tytul, url="", tresc_opisu=""):
         if smiec in pelny_tekst and smiec not in fraza_lower:
             return False
 
-    # Pobieramy WSZYSTKIE słowa (łącznie z pojedynczymi literami jak 'k' w 'astra k')
     slowa_zapytania = [s.lower() for s in re.findall(r'[a-zA-Z0-9ąęłśćóżźĄĘŁŚĆÓŻŹ]+', szukana_fraza)]
     if not slowa_zapytania:
         return True
 
+    # Wyciągamy słowa kluczowe z wykluczeniem generycznych
     istotne_slowa = [s for s in slowa_zapytania if s not in GENERYCZNE_SLOWA]
 
     if istotne_slowa:
-        trafione_istotne = [s for s in istotne_slowa if s in pelny_tekst]
-        if (len(trafione_istotne) / len(istotne_slowa)) < 0.6:
-            return False
+        # Słowa wieloliterowe (np. "astra", "golf", "iphone")
+        slowa_glowne = [s for s in istotne_slowa if len(s) > 1]
+        if slowa_glowne:
+            trafione_glowne = [s for s in slowa_glowne if s in pelny_tekst]
+            if not trafione_glowne:
+                return False
+
+        # Słowa 1-literowe (np. "k" w "astra k", "v" w "golf v")
+        pojedyncze_litery = [s for s in istotne_slowa if len(s) == 1]
+        if pojedyncze_litery:
+            for litera in pojedyncze_litery:
+                # Weryfikacja czy litera występuje jako osobny wyraz w tytule, slugu lub opisie
+                pattern = r'\b' + re.escape(litera) + r'\b'
+                if not re.search(pattern, pelny_tekst):
+                    return False
 
     trafione_wszystkie = [s for s in slowa_zapytania if s in pelny_tekst]
     return (len(trafione_wszystkie) / len(slowa_zapytania)) >= 0.5
@@ -294,7 +306,7 @@ def pobierz_tresc_opisu_http(url):
                 except Exception:
                     pass
             
-            # 2. Otomoto - __NEXT_DATA__ / HTML
+            # 2. Otomoto - HTML / NEXT_DATA
             if "otomoto.pl" in url:
                 otomoto_desc = soup.find('div', {'data-testid': 'advert-description'}) or \
                                soup.find('div', class_=re.compile(r'description-content|ooa-1e9k97d'))
@@ -316,7 +328,7 @@ def formatuj_czas(sekundy):
     m, s = divmod(s, 60)
     return f"{m}m {s}s" if m > 0 else f"{s}s"
 
-# --- SILNIK WYSZUKIWANIA ---
+# --- ZODPORNIONY SILNIK WYSZUKIWANIA Z AUTOMATYCZNYM URL FALLBACK ---
 def pobierz_oferty_olx(fraza, kategorie_slugs, stany_olx, cena_min, cena_max, pasek_postepu, tekst_statusu, stop_container):
     oferty, odrzucone_list, unikalne_linki = [], [], set()
     MAX_OFERT, MAX_STRON_PER_KAT = 100, 30
@@ -346,15 +358,20 @@ def pobierz_oferty_olx(fraza, kategorie_slugs, stany_olx, cena_min, cena_max, pa
             elapsed_sec = time.time() - start_time
             tekst_statusu.write(f"⚡ Kat. {kat_idx}/{total_kategorii} | Strona {strona} (znaleziono trafnych: {len(oferty)}) | ⏱️ {formatuj_czas(elapsed_sec)}")
 
+            # Wariant 1: Pełny URL z filtrami
             olx_url = f"https://www.olx.pl/{kategoria_slug}/q-{olx_query}/?page={strona}&search%5Border%5D=filter_float_price%3Aasc{olx_state_param}{olx_price_param}"
             
             try:
                 res = requests.get(olx_url, headers=HTTP_HEADERS, timeout=8)
-                if res.status_code != 200:
-                    break
-
                 soup = BeautifulSoup(res.text, 'html.parser')
                 cards = soup.select('div[data-cy="l-card"], div[data-testid="l-card"], [data-testid="ad-card"], article')
+
+                # Wariant 2 Fallback: Jeśli brak wyników (np. Motoryzacja odrzucająca filter_enum_state), spróbuj bez filtra stanu
+                if not cards and olx_state_param:
+                    olx_url_fallback = f"https://www.olx.pl/{kategoria_slug}/q-{olx_query}/?page={strona}&search%5Border%5D=filter_float_price%3Aasc{olx_price_param}"
+                    res = requests.get(olx_url_fallback, headers=HTTP_HEADERS, timeout=8)
+                    soup = BeautifulSoup(res.text, 'html.parser')
+                    cards = soup.select('div[data-cy="l-card"], div[data-testid="l-card"], [data-testid="ad-card"], article')
 
                 if not cards:
                     break
@@ -373,7 +390,13 @@ def pobierz_oferty_olx(fraza, kategorie_slugs, stany_olx, cena_min, cena_max, pa
                         link = link_elem['href']
                         if link and not link.startswith('http'): link = "https://www.olx.pl" + link
 
-                        if link in unikalne_linki or (cena_min > 0 and cena_num < cena_min) or (cena_max > 0 and cena_num > cena_max):
+                        if link in unikalne_linki:
+                            continue
+
+                        # Ścisłe filtrowanie po cenie po stronie Pythona (niezależnie od OLX)
+                        if cena_min > 0 and cena_num < cena_min:
+                            continue
+                        if cena_max > 0 and cena_num > cena_max:
                             continue
 
                         card_html_raw = str(card).lower()
@@ -435,7 +458,7 @@ with st.sidebar:
     st.markdown("## ⚙️ Panel Sterowania")
     st.caption("Skonfiguruj zapytanie do skanera OLX")
 
-    input_data = st.text_input("Szukany przedmiot / Link:", placeholder="np. Rower Kross Hexagon 3.0")
+    input_data = st.text_input("Szukany przedmiot / Link:", placeholder="np. Astra K lub Rower Kross")
 
     wybrane_kategorie_nazwy = st.multiselect(
         "Kategorie OLX:", 
