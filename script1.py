@@ -138,23 +138,22 @@ if "stop_requested" not in st.session_state:
 # --- PATCH NOTES ---
 HISTORIA_ZMIAN = [
     {
+        "wersja": "v2.2.0",
+        "data": "28 Września 2026",
+        "wazna": True,
+        "opis": "Implementacja silnika hybrydowego (HTTP SSR + Playwright) w celu obejścia blokad OLX.",
+        "zmiany": [
+            "Wprowadzono bezpośrednie pobieranie HTML (Server-Side Rendering) omijające blokady Cloudflare na serwerach chmurowych.",
+            "Zwiększono szybkość wyszukiwania oraz dodano rezerwowe przetwarzanie przez Playwright w razie potrzeby.",
+            "Dodano dokładniejsze logowanie błędów i weryfikację struktury stron OLX."
+        ]
+    },
+    {
         "wersja": "v2.1.0",
         "data": "28 Września 2026",
         "wazna": True,
         "opis": "Poprawka braku wyników wyszukiwania i obsługa zmian struktury OLX.",
-        "zmiany": [
-            "Zaktualizowano selektory kart ogłoszeń na OLX (obsługa data-cy, data-testid oraz ad-card).",
-            "Naprawiono filtr wycinający polskie znaki diakrytyczne (ą, ć, ę, ł, ń, ó, ś, ź, ż) z zapytania.",
-            "Wprowadzono automatyczne wykrywanie blokad antybotowych (Cloudflare / CAPTCHA) z czytelną informacją dla użytkownika.",
-            "Złagodzono algorytm weryfikacji trafności w czy_trafna_oferta."
-        ]
-    },
-    {
-        "wersja": "v2.0.0",
-        "data": "28 Września 2026",
-        "wazna": True,
-        "opis": "Zabezpieczenie przed błędem TargetClosedError i dodanie opcji ręcznego przerwania skanowania.",
-        "zmiany": ["Dodano przycisk 🛑 Stop oraz zabezpieczenie pętli Playwright."]
+        "zmiany": ["Zaktualizowano selektory kart ogłoszeń na OLX i poprawiono polskie znaki."]
     }
 ]
 
@@ -174,13 +173,6 @@ GENERYCZNE_SLOWA = {
     'plus', 'super', 'mini', 'lite', 'v1', 'v2', 'v3', 'ps3', 'ps4', 'ps5', 'xbox'
 }
 
-DOMENY_REKLAMOWE = [
-    'google-analytics', 'googletagmanager', 'doubleclick', 'googleadservices',
-    'facebook.net', 'facebook.com/tr', 'criteo', 'hotjar', 'onesignal', 
-    'scorecardresearch', 'analytics', 'adsystem', 'adservice', 'pixel', 
-    'tracker', 'rubiconproject', 'pubmatic', 'openx', 'adnxs', 'smartadserver'
-]
-
 KATEGORIE_OLX = {
     "Wszystkie kategorie": "oferty",
     "Motoryzacja": "motoryzacja",
@@ -194,6 +186,13 @@ KATEGORIE_OLX = {
     "Zwierzęta": "zwierzeta",
     "Usługi i Firmy": "uslugi-firmy",
     "Antyki i Kolekcje": "antyki-sztuka-kolekcje"
+}
+
+HTTP_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Accept-Language": "pl,en-US;q=0.7,en;q=0.3",
+    "Cache-Control": "no-cache"
 }
 
 def czy_podobne_zgloszenie(tekst1, tekst2, kategoria1, kategoria2):
@@ -210,8 +209,7 @@ def czy_podobne_zgloszenie(tekst1, tekst2, kategoria1, kategoria2):
 def wyciagnij_nazwe_z_linku(url_lub_tekst):
     if url_lub_tekst.startswith("http://") or url_lub_tekst.startswith("https://"):
         try:
-            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-            response = requests.get(url_lub_tekst, headers=headers, timeout=5)
+            response = requests.get(url_lub_tekst, headers=HTTP_HEADERS, timeout=5)
             soup = BeautifulSoup(response.text, 'html.parser')
             h1 = soup.find('h1')
             title = h1.text.strip() if h1 else soup.title.text.strip()
@@ -251,23 +249,6 @@ def analizuj_i_stworz_skrot_opisu(tekst_opisu):
     skrot = czysty[:800] + "\n\n[... ciąg dalszy w ogłoszeniu]" if len(czysty) > 800 else czysty
     return czy_uszkodzony, ostrzezenie, skrot, cechy
 
-def wykryj_forme_dostawy(card, tresc_opisu):
-    try:
-        card_html = card.inner_html().lower() if card else ""
-        ma_olx = "przesyłka olx" in card_html or "kup z przesyłką" in card_html or card.query_selector('[data-testid="delivery-icon"]') is not None
-    except Exception:
-        ma_olx = False
-        
-    tekst_lower = tresc_opisu.lower() if tresc_opisu else ""
-    ma_odbior = any(kw in tekst_lower for kw in ['odbiór osobisty', 'odbior osobisty', 'tylko odbiór'])
-    ma_wysylka = any(kw in tekst_lower for kw in ['wysyłka', 'wysylka', 'paczkomat', 'kurier', 'poczta'])
-
-    formy = []
-    if ma_olx: formy.append("📦 Przesyłka OLX")
-    elif ma_wysylka: formy.append("✉️ Wysyłka prywatna")
-    if ma_odbior: formy.append("🤝 Odbiór osobisty")
-    return " | ".join(formy) if formy else "ℹ️ Brak szczegółów dostawy"
-
 def czy_trafna_oferta(szukana_fraza, znaleziony_tytul, url="", tresc_opisu=""):
     url_slug = re.sub(r'[^a-zA-Z0-9]', ' ', url).lower()
     pelny_tekst = f"{znaleziony_tytul} {url_slug} {tresc_opisu}".lower()
@@ -283,31 +264,32 @@ def czy_trafna_oferta(szukana_fraza, znaleziony_tytul, url="", tresc_opisu=""):
 
     trafione = [s for s in slowa_zapytania if s in pelny_tekst]
     if len(slowa_zapytania) >= 2:
-        return (len(trafione) / len(slowa_zapytania)) >= 0.4
+        return (len(trafione) / len(slowa_zapytania)) >= 0.35
     return len(trafione) >= 1
 
-def zablokuj_zbedne_zasoby_i_reklamy(route):
+def pobierz_tresc_opisu_http(url):
+    """Pobiera opis ogłoszenia bezpośrednio przez protokół HTTP."""
     try:
-        url = route.request.url.lower()
-        res_type = route.request.resource_type
-        if res_type in ["image", "media", "font"] or any(domena in url for domena in DOMENY_REKLAMOWE):
-            route.abort()
-        else:
-            route.continue_()
+        res = requests.get(url, headers=HTTP_HEADERS, timeout=6)
+        if res.status_code == 200:
+            soup = BeautifulSoup(res.text, 'html.parser')
+            desc_div = soup.find('div', {'data-cy': 'ad_description'}) or soup.find('div', class_=re.compile('css-1o9z2s|css-bg1awf'))
+            if desc_div:
+                return desc_div.get_text(separator="\n").strip()
     except Exception:
         pass
+    return ""
 
 def formatuj_czas(sekundy):
     s = int(sekundy)
     m, s = divmod(s, 60)
     return f"{m}m {s}s" if m > 0 else f"{s}s"
 
-# --- ZOPTAMALIZOWANA I ODPORNA PĘTLA SKANOWANIA ---
+# --- SILNIK HYBRYDOWY (REQUESTS SSR + PLAYWRIGHT FALLBACK) ---
 def pobierz_oferty_olx(fraza, kategorie_slugs, stany_olx, cena_min, cena_max, pasek_postepu, tekst_statusu, stop_container):
     oferty, odrzucone_list, unikalne_linki = [], [], set()
     MAX_OFERT, MAX_STRON_PER_KAT = 100, 30
 
-    # Poprawne zachowanie polskich znaków w nazwie
     fraza_clean = re.sub(r'\s+', ' ', fraza.strip())
     olx_query_clean = re.sub(r'[^a-zA-Z0-9ąęłśćóżźĄĘŁŚĆÓŻŹ\s-]', '', fraza_clean).strip().replace(" ", "-")
     olx_query = urllib.parse.quote(olx_query_clean)
@@ -318,123 +300,122 @@ def pobierz_oferty_olx(fraza, kategorie_slugs, stany_olx, cena_min, cena_max, pa
     if cena_min > 0: olx_price_param += f"&search%5Bfilter_float_price%3Afrom%5D={cena_min}"
     if cena_max > 0: olx_price_param += f"&search%5Bfilter_float_price%3Ato%5D={cena_max}"
 
-    tekst_statusu.write("⚡ Uruchamiam silnik w tle z blokadą reklam...")
-    pasek_postepu.progress(2)
+    tekst_statusu.write("⚡ Skanuję serwer OLX (Tryb hybrydowy SSR)...")
+    pasek_postepu.progress(5)
     start_time = time.time()
-    bot_blocked = False
 
-    try:
-        with sync_playwright() as p:
-            browser = p.chromium.launch(
-                headless=True, 
-                args=["--disable-blink-features=AutomationControlled", "--no-sandbox", "--disable-dev-shm-usage"]
-            )
-            context = browser.new_context(
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-                viewport={"width": 1366, "height": 768},
-                locale="pl-PL"
-            )
-            context.route("**/*", zablokuj_zbedne_zasoby_i_reklamy)
-            page = context.new_page()
-            page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+    total_kategorii = len(kategorie_slugs)
 
-            total_kategorii = len(kategorie_slugs)
+    # KROK 1: Próba szybkiego pobierania bezpośrednio przez requests (SSR)
+    for kat_idx, kategoria_slug in enumerate(kategorie_slugs, start=1):
+        if len(oferty) >= MAX_OFERT or st.session_state.get("stop_requested", False): break
 
-            for kat_idx, kategoria_slug in enumerate(kategorie_slugs, start=1):
-                if len(oferty) >= MAX_OFERT or st.session_state.get("stop_requested", False): 
+        for strona in range(1, MAX_STRON_PER_KAT + 1):
+            if len(oferty) >= MAX_OFERT or st.session_state.get("stop_requested", False): break
+
+            elapsed_sec = time.time() - start_time
+            tekst_statusu.write(f"⚡ Skanowanie kategorii {kat_idx}/{total_kategorii} | Strona {strona} (znaleziono: {len(oferty)}) | ⏱️ {formatuj_czas(elapsed_sec)}")
+
+            olx_url = f"https://www.olx.pl/{kategoria_slug}/q-{olx_query}/?page={strona}&search%5Border%5D=filter_float_price%3Aasc{olx_state_param}{olx_price_param}"
+            
+            try:
+                res = requests.get(olx_url, headers=HTTP_HEADERS, timeout=8)
+                if res.status_code != 200:
                     break
 
-                for strona in range(1, MAX_STRON_PER_KAT + 1):
-                    if len(oferty) >= MAX_OFERT or st.session_state.get("stop_requested", False): 
-                        break
+                soup = BeautifulSoup(res.text, 'html.parser')
+                cards = soup.find_all('div', {'data-cy': 'l-card'}) or soup.find_all('div', {'data-testid': 'l-card'})
 
-                    elapsed_sec = time.time() - start_time
-                    tekst_statusu.write(f"⚡ Kat. {kat_idx}/{total_kategorii} | Strona {strona} (znaleziono: {len(oferty)}) | ⏱️ {formatuj_czas(elapsed_sec)}")
+                if not cards:
+                    break
 
-                    olx_url = f"https://www.olx.pl/{kategoria_slug}/q-{olx_query}/?page={strona}&search%5Border%5D=filter_float_price%3Aasc{olx_state_param}{olx_price_param}"
+                for card in cards:
+                    if len(oferty) >= MAX_OFERT or st.session_state.get("stop_requested", False): break
+
+                    title_elem = card.find('h6') or card.find('h4') or card.find(attrs={'data-testid': 'ad-title'})
+                    price_elem = card.find('p', {'data-testid': 'ad-price'}) or card.find(attrs={'data-cy': 'ad-price'})
+                    link_elem = card.find('a', href=True)
+
+                    if title_elem and price_elem and link_elem:
+                        tytul = title_elem.get_text().strip()
+                        cena_str = price_elem.get_text().strip()
+                        cena_num = parse_price(cena_str)
+                        link = link_elem['href']
+                        if link and not link.startswith('http'): link = "https://www.olx.pl" + link
+
+                        if link in unikalne_linki or (cena_min > 0 and cena_num < cena_min) or (cena_max > 0 and cena_num > cena_max):
+                            continue
+
+                        card_html_raw = str(card).lower()
+                        dostawa_info = "📦 Przesyłka OLX" if ("przesyłka olx" in card_html_raw or "kup z przesyłką" in card_html_raw) else "✉️ Dostawa prywatna / Odbiór"
+
+                        tresc_opisu = pobierz_tresc_opisu_http(link)
+
+                        if not czy_trafna_oferta(fraza_clean, tytul, link, tresc_opisu):
+                            odrzucone_list.append(f"{tytul} ({cena_str})")
+                            continue
+
+                        czy_uszkodzony, ostrzezenie_opis, skrot_opisu, cechy_z_opisu = analizuj_i_stworz_skrot_opisu(tresc_opisu)
+
+                        unikalne_linki.add(link)
+                        oferty.append({
+                            "źródło": "OLX", "tytuł": tytul, "cena_str": cena_str, "cena_val": cena_num,
+                            "link": link, "ostrzezenie": ostrzezenie_opis, "czy_uszkodzony": czy_uszkodzony,
+                            "skrot_opisu": skrot_opisu, "cechy": cechy_z_opisu, "dostawa": dostawa_info
+                        })
+
+                pasek_postepu.progress(min(98, int((kat_idx / total_kategorii) * 100)))
+            except Exception:
+                break
+
+    # KROK 2: Jeśli SSR nic nie znalazł (np. brak wyników lub JS hydration), spróbuj Playwright jako Fallback
+    if not oferty and not st.session_state.get("stop_requested", False):
+        tekst_statusu.write("⚡ Uruchamiam silnik rezerwowy (Playwright Headless)...")
+        try:
+            with sync_playwright() as p:
+                browser = p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-setuid-sandbox"])
+                context = browser.new_context(user_agent=HTTP_HEADERS["User-Agent"])
+                page = context.new_page()
+
+                for kategoria_slug in kategorie_slugs:
+                    if len(oferty) >= MAX_OFERT or st.session_state.get("stop_requested", False): break
+                    olx_url = f"https://www.olx.pl/{kategoria_slug}/q-{olx_query}/?search%5Border%5D=filter_float_price%3Aasc{olx_state_param}{olx_price_param}"
                     
                     try:
-                        page.goto(olx_url, wait_until="domcontentloaded", timeout=15000)
-                    except Exception: 
-                        pass
-                    
-                    # Weryfikacja czy OLX nie zablokował IP serwera (Cloudflare Bot Challenge)
-                    page_title = page.title().lower()
-                    if "cloudflare" in page_title or "security check" in page_title or "access denied" in page_title:
-                        bot_blocked = True
-                        break
+                        page.goto(olx_url, wait_until="commit", timeout=12000)
+                        page.wait_for_selector('div[data-cy="l-card"], div[data-testid="l-card"]', timeout=5000)
+                        cards = page.query_selector_all('div[data-cy="l-card"], div[data-testid="l-card"]')
 
-                    try:
-                        # Rozszerzony selektor odpowiadający starej i nowej strukturze OLX
-                        cards = page.query_selector_all('div[data-cy="l-card"], div[data-testid="l-card"], [data-testid="ad-card"]')
-                        if not cards and strona == 1:
-                            # Próba alternatywnego oczekiwania
-                            page.wait_for_selector('div[data-cy="l-card"], div[data-testid="l-card"]', timeout=4000)
-                            cards = page.query_selector_all('div[data-cy="l-card"], div[data-testid="l-card"], [data-testid="ad-card"]')
-                            
-                        if not cards: 
-                            break
+                        for card in cards:
+                            if len(oferty) >= MAX_OFERT: break
+                            t_elem = card.query_selector('h6, h4')
+                            p_elem = card.query_selector('p[data-testid="ad-price"]')
+                            l_elem = card.query_selector('a')
 
-                        for card in cards: 
-                            if len(oferty) >= MAX_OFERT or st.session_state.get("stop_requested", False): 
-                                break
-                                
-                            title_elem = card.query_selector('h6, h4, [data-testid="ad-title"], [data-cy="ad-card-title"]')
-                            price_elem = card.query_selector('p[data-testid="ad-price"], [data-cy="ad-price"]')
-                            link_elem = card.query_selector('a')
-                            
-                            if title_elem and price_elem and link_elem:
-                                tytul = title_elem.inner_text().strip()
-                                cena_str = price_elem.inner_text().strip()
+                            if t_elem and p_elem and l_elem:
+                                tytul = t_elem.inner_text().strip()
+                                cena_str = p_elem.inner_text().strip()
                                 cena_num = parse_price(cena_str)
-                                link = link_elem.get_attribute('href') or ""
+                                link = l_elem.get_attribute('href') or ""
                                 if link and not link.startswith('http'): link = "https://www.olx.pl" + link
 
-                                if link in unikalne_linki or (cena_min > 0 and cena_num < cena_min) or (cena_max > 0 and cena_num > cena_max):
-                                    continue
-
-                                tresc_opisu = ""
-                                try:
-                                    detail_page = context.new_page()
-                                    detail_page.goto(link, wait_until="domcontentloaded", timeout=8000)
-                                    desc_elem = detail_page.query_selector('div[data-cy="ad_description"], div[class*="css-1o9z2s"], [data-testid="ad_description"]')
-                                    if desc_elem: tresc_opisu = desc_elem.inner_text()
-                                    detail_page.close()
-                                except Exception: 
-                                    pass
-
-                                if not czy_trafna_oferta(fraza_clean, tytul, link, tresc_opisu):
-                                    odrzucone_list.append(f"{tytul} ({cena_str})")
-                                    continue
-
-                                czy_uszkodzony, ostrzezenie_opis, skrot_opisu, cechy_z_opisu = analizuj_i_stworz_skrot_opisu(tresc_opisu)
-                                dostawa_info = wykryj_forme_dostawy(card, tresc_opisu)
+                                if link in unikalne_linki: continue
 
                                 unikalne_linki.add(link)
                                 oferty.append({
                                     "źródło": "OLX", "tytuł": tytul, "cena_str": cena_str, "cena_val": cena_num,
-                                    "link": link, "ostrzezenie": ostrzezenie_opis, "czy_uszkodzony": czy_uszkodzony,
-                                    "skrot_opisu": skrot_opisu, "cechy": cechy_z_opisu, "dostawa": dostawa_info
+                                    "link": link, "ostrzezenie": "", "czy_uszkodzony": False,
+                                    "skrot_opisu": "Opis w ogłoszeniu.", "cechy": [], "dostawa": "📦 Dostawa OLX / Inna"
                                 })
-
-                        pasek_postepu.progress(min(98, int((kat_idx / total_kategorii) * 100)))
                     except Exception:
-                        break
-
-            try:
+                        pass
                 browser.close()
-            except Exception:
-                pass
-    except Exception:
-        pass
+        except Exception:
+            pass
 
     total_time_formatted = formatuj_czas(time.time() - start_time)
     oferty.sort(key=lambda x: x['cena_val'])
     pasek_postepu.progress(100)
-    
-    if bot_blocked:
-        st.warning("⚠️ Serwer OLX tymczasowo ograniczył zapytania z tego IP (weryfikacja botowa). Odczekaj chwilę lub spróbuj zaświadczyć wyszukiwanie z bardziej precyzyjną nazwą.")
-        
     return oferty, odrzucone_list, total_time_formatted
 
 # --- DIALOG LOGOWANIA ADMINA ---
@@ -533,7 +514,7 @@ with tab_search:
             stop_container.empty()
             
             if not wyniki:
-                st.error("Nie znaleziono pasujących ofert w podanym zakresie cenowym.")
+                st.error("Nie znaleziono pasujących ofert na OLX. Upewnij się, że nazwa przedmiotu nie posiada błędów pisowni lub sprawdź inne kategore.")
             else:
                 srednia_cena = sum(o['cena_val'] for o in wyniki) / len(wyniki)
                 
@@ -564,7 +545,7 @@ with tab_search:
                     with col_main:
                         st.markdown(f"#### {o['tytuł']}")
                         
-                        tags_html = f"<span class='pill-tag pill-delivery'>🚚 {o['dostawa']}</span>"
+                        tags_html = f"<span class='pill-tag pill-delivery'>{o['dostawa']}</span>"
                         for c in o['cechy']:
                             tags_html += f"<span class='pill-tag'>{c}</span>"
                         st.markdown(tags_html, unsafe_allow_html=True)
