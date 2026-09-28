@@ -51,22 +51,22 @@ if "zalogowany_admin" not in st.session_state:
 # --- STRUKTURA HISTORII ZMIAN (PATCH NOTES) ---
 HISTORIA_ZMIAN = [
     {
+        "wersja": "v1.6.1",
+        "data": "28 Września 2026",
+        "wazna": True,
+        "opis": "Niezawodne pozycjonowanie przycisku admina w lewym dolnym rogu.",
+        "zmiany": [
+            "Zastosowano JavaScript MutationObserver wymuszający pozycjonowanie przycisku logowania (🔑) w lewym dolnym rogu okna przeglądarki.",
+            "Wyeliminowano błędy ponownego renderowania kontenerów Streamlit."
+        ]
+    },
+    {
         "wersja": "v1.6.0",
         "data": "28 Września 2026",
         "wazna": True,
         "opis": "Trwały zapis bufora zgłoszeń do pliku JSON.",
         "zmiany": [
-            "Zgłoszenia użytkowników i zmiana statusów są teraz trwale zapisywane w pliku zgloszenia_bufor.json.",
-            "Dane nie giną przy aktualizacji wersji, restarcie serwera czy przeładowaniu strony."
-        ]
-    },
-    {
-        "wersja": "v1.5.1",
-        "data": "28 Września 2026",
-        "wazna": True,
-        "opis": "Relokacja przycisku logowania administratora do lewego dolnego rogu.",
-        "zmiany": [
-            "Przeniesiono dyskretny przycisk z symbolem kluczyka (🔑) do lewego dolnego rogu ekranu."
+            "Zgłoszenia użytkowników i zmiana statusów są trwale zapisywane w pliku zgloszenia_bufor.json."
         ]
     },
     {
@@ -667,52 +667,60 @@ with tab_feedback:
                             st.toast(f"Zmieniono status zgłoszenia #{zgl['id']} na: {nowy_status}")
                             st.rerun()
 
-# --- PRZYCISK LOGOWANIA ADMINA W LEWYM DOLNYM ROGU EKRANU ---
+# --- BEZWZGLĘDNIE NIEZAWODNE POZYCJONOWANIE PRZYCISKU ADMINA W LEWYM DOLNYM ROGU (JAVASCRIPT) ---
 
-st.markdown('<span id="admin_left_anchor"></span>', unsafe_allow_html=True)
-if st.button("🔑", key="abs_bottom_left_admin_btn"):
+if st.button("🔑", key="left_corner_admin_key"):
     dialog_logowania()
 
 st.markdown("""
-    <style>
-    /* Namierza kontener przycisku tuż obok znacznika anchor */
-    div:has(> span#admin_left_anchor) + div {
-        position: fixed !important;
-        bottom: 15px !important;
-        left: 15px !important;
-        z-index: 99999999 !important;
-        width: auto !important;
-        height: auto !important;
+    <script>
+    function positionLeftAdminButton() {
+        const btns = window.parent.document.querySelectorAll('button');
+        btns.forEach(btn => {
+            if (btn.innerText && btn.innerText.trim() === '🔑') {
+                const container = btn.closest('div[data-testid="stElementContainer"]') || btn.closest('div[data-testid="stButton"]');
+                if (container) {
+                    container.style.setProperty('position', 'fixed', 'important');
+                    container.style.setProperty('bottom', '20px', 'important');
+                    container.style.setProperty('left', '20px', 'important');
+                    container.style.setProperty('z-index', '9999999', 'important');
+                    container.style.setProperty('width', 'auto', 'important');
+                    container.style.setProperty('height', 'auto', 'important');
+                    container.style.setProperty('margin', '0', 'important');
+                    container.style.setProperty('padding', '0', 'important');
+                }
+                btn.style.setProperty('width', '40px', 'important');
+                btn.style.setProperty('height', '40px', 'important');
+                btn.style.setProperty('border-radius', '50%', 'important');
+                btn.style.setProperty('opacity', '0.3', 'important');
+                btn.style.setProperty('background-color', 'rgba(255, 255, 255, 0.08)', 'important');
+                btn.style.setProperty('border', '1px solid rgba(255, 255, 255, 0.2)', 'important');
+                btn.style.setProperty('font-size', '16px', 'important');
+                btn.style.setProperty('padding', '0', 'important');
+                btn.style.setProperty('display', 'flex', 'important');
+                btn.style.setProperty('align-items', 'center', 'important');
+                btn.style.setProperty('justify-content', 'center', 'important');
+                btn.style.setProperty('transition', 'all 0.25s ease-in-out', 'important');
+                btn.style.setProperty('box-shadow', '0px 2px 6px rgba(0,0,0,0.2)', 'important');
+                
+                btn.onmouseover = function() {
+                    btn.style.setProperty('opacity', '1.0', 'important');
+                    btn.style.setProperty('background-color', '#ff4b4b', 'important');
+                    btn.style.setProperty('border-color', '#ff4b4b', 'important');
+                    btn.style.setProperty('transform', 'scale(1.1)', 'important');
+                };
+                btn.onmouseout = function() {
+                    btn.style.setProperty('opacity', '0.3', 'important');
+                    btn.style.setProperty('background-color', 'rgba(255, 255, 255, 0.08)', 'important');
+                    btn.style.setProperty('border-color', 'rgba(255, 255, 255, 0.2)', 'important');
+                    btn.style.setProperty('transform', 'scale(1.0)', 'important');
+                };
+            }
+        });
     }
 
-    /* Subtelny przycisk w lewym dolnym rogu */
-    div:has(> span#admin_left_anchor) + div button {
-        position: fixed !important;
-        bottom: 15px !important;
-        left: 15px !important;
-        width: 38px !important;
-        height: 38px !important;
-        border-radius: 50% !important;
-        opacity: 0.3 !important;
-        background-color: rgba(255, 255, 255, 0.08) !important;
-        border: 1px solid rgba(255, 255, 255, 0.2) !important;
-        font-size: 16px !important;
-        padding: 0 !important;
-        display: flex !important;
-        align-items: center !important;
-        justify-content: center !important;
-        transition: all 0.25s ease-in-out !important;
-        z-index: 99999999 !important;
-        box-shadow: 0px 2px 6px rgba(0, 0, 0, 0.2) !important;
-    }
-
-    /* Podświetlenie po najechaniu myszką */
-    div:has(> span#admin_left_anchor) + div button:hover {
-        opacity: 1.0 !important;
-        background-color: #ff4b4b !important;
-        border-color: #ff4b4b !important;
-        box-shadow: 0px 4px 12px rgba(255, 75, 75, 0.5) !important;
-        transform: scale(1.08);
-    }
-    </style>
+    positionLeftAdminButton();
+    const adminObserver = new MutationObserver(positionLeftAdminButton);
+    adminObserver.observe(window.parent.document.body, { childList: true, subtree: true });
+    </script>
 """, unsafe_allow_html=True)
