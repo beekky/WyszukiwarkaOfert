@@ -107,7 +107,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- TRWAŁY ZAPIS ZGŁOSZEŃ JSON ---
+# --- OBSŁUGA TRWAŁEGO ZAPISU BUFORA ZGŁOSZEŃ ---
 PLIK_BUFORA = "zgloszenia_bufor.json"
 
 def wczytaj_bufor_z_pliku():
@@ -126,36 +126,156 @@ def zapisz_bufor_do_pliku():
     except Exception as e:
         st.error(f"Błąd zapisu bufora: {e}")
 
-if "bufor_zgloszen" not in st.session_state:
-    st.session_state["bufor_zgloszen"] = wczytaj_bufor_z_pliku()
+# --- OBSŁUGA TRWAŁEGO ZAPISU PATCH NOTES (JSON) ---
+PLIK_PATCH_NOTES = "patch_notes.json"
 
-if "zalogowany_admin" not in st.session_state:
-    st.session_state["zalogowany_admin"] = False
-
-if "stop_requested" not in st.session_state:
-    st.session_state["stop_requested"] = False
-
-# --- PATCH NOTES ---
-HISTORIA_ZMIAN = [
+DOMYSLNA_HISTORIA_ZMIAN = [
+    {
+        "wersja": "v2.9.0",
+        "data": "28 Września 2026",
+        "wazna": True,
+        "opis": "Odtworzenie pełnej analizy opisów i trwały zapis wszystkich Patch Notes do JSON.",
+        "zmiany": [
+            "Przywrócono pełną analizę opisów ogłoszeń (detekcja wad, gwarancji, paragonów i pudełek) dla każdej pobranej oferty.",
+            "Zapisano całą historię zmian w pliku patch_notes.json – historia nie jest ucinana i zawiera wszystkie wydania od v1.0.0.",
+            "Dodano panel dla Admina umożliwiający publikowanie nowych wpisów Patch Notes bezpośrednio z interfejsu."
+        ]
+    },
     {
         "wersja": "v2.8.0",
         "data": "28 Września 2026",
         "wazna": True,
-        "opis": "Trójwarstwowy Silnik Hybrydowy (Playwright DOM + SSR + API) do niezawodnego omijania blokad Cloudflare.",
-        "zmiany": [
-            "Wprowadzono bezpośrednią ewaluację obiektu window.__NEXT_DATA__ w przeglądarce Playwright, omijając blokady Cloudflare.",
-            "Wyeliminowano seryjne podpytywanie o opisy ogłoszeń, zapobiegając nakładaniu banów na IP.",
-            "Dodano trójwarstwowy mechanizm rezerwowy (Multi-Layer Fallback Engine) dla 100% stabilności wyników."
-        ]
+        "opis": "Trójwarstwowy Silnik Hybrydowy do omijania blokad Cloudflare.",
+        "zmiany": ["Wyciąganie obiektów window.__NEXT_DATA__ bez seryjnych zapytań HTTP."]
     },
     {
         "wersja": "v2.7.0",
         "data": "28 Września 2026",
         "wazna": True,
         "opis": "Integracja z OLX REST API.",
-        "zmiany": ["Skanowanie przez punkty końcowe API."]
+        "zmiany": ["Bezpośrednie zapytania do punktów końcowych API v1."]
+    },
+    {
+        "wersja": "v2.6.0",
+        "data": "28 Września 2026",
+        "wazna": True,
+        "opis": "Skanowanie obiektów JSON __NEXT_DATA__.",
+        "zmiany": ["Skanowanie struktur wygenerowanych w Next.js."]
+    },
+    {
+        "wersja": "v2.5.0",
+        "data": "28 Września 2026",
+        "wazna": True,
+        "opis": "Implementacja 3-stopniowego mechanizmu URL Fallback.",
+        "zmiany": ["Poprawka dołączania parametrów filtrów stanu."]
+    },
+    {
+        "wersja": "v2.4.0",
+        "data": "28 Września 2026",
+        "wazna": True,
+        "opis": "Pełna obsługa modeli samochodów oraz wsparcie dla Otomoto.",
+        "zmiany": ["Dodano pobieranie opisów dla samochodów z Otomoto."]
+    },
+    {
+        "wersja": "v2.0.0",
+        "data": "28 Września 2026",
+        "wazna": True,
+        "opis": "Zabezpieczenie przed TargetClosedError i przycisk Stop.",
+        "zmiany": ["Dodanie ręcznego zatrzymania skanowania."]
+    },
+    {
+        "wersja": "v1.9.0",
+        "data": "28 Września 2026",
+        "wazna": True,
+        "opis": "Kompletna zmiana struktury na układ typu Dashboard / SaaS Analytics.",
+        "zmiany": ["Przeniesienie konfiguracji do paska bocznego i dodanie kafelków analitycznych."]
+    },
+    {
+        "wersja": "v1.8.0",
+        "data": "28 Września 2026",
+        "wazna": True,
+        "opis": "Implementacja szaty graficznej Stevia Style.",
+        "zmiany": ["Dopasowanie kolorystyki i typografii."]
+    },
+    {
+        "wersja": "v1.6.0",
+        "data": "28 Września 2026",
+        "wazna": True,
+        "opis": "Trwały zapis bufora zgłoszeń do pliku JSON.",
+        "zmiany": ["Zapis zgłoszeń w pliku zgloszenia_bufor.json."]
+    },
+    {
+        "wersja": "v1.4.0",
+        "data": "28 Września 2026",
+        "wazna": True,
+        "opis": "System statusów zgłoszeń i inteligentna agregacja duplikatów.",
+        "zmiany": ["Zmiana statusów oraz automatyczne podbijanie priorytetu duplikatów."]
+    },
+    {
+        "wersja": "v1.3.0",
+        "data": "28 Września 2026",
+        "wazna": True,
+        "opis": "Zabezpieczenie bufora zgłoszeń i autoryzacja administratora.",
+        "zmiany": ["Popup logowania admina i ukrycie bufora błędów."]
+    },
+    {
+        "wersja": "v1.2.0",
+        "data": "28 Września 2026",
+        "wazna": True,
+        "opis": "Dodanie bufora zgłoszeń błędów od użytkowników.",
+        "zmiany": ["Pierwsza wersja zakładki zgłoszeń."]
+    },
+    {
+        "wersja": "v1.1.0",
+        "data": "28 Września 2026",
+        "wazna": True,
+        "opis": "Oficjalna wersja z natywnymi zakładkami st.tabs.",
+        "zmiany": ["Przywrócenie natywnych zakładek Streamlit."]
+    },
+    {
+        "wersja": "v1.0.0",
+        "data": "28 Września 2026",
+        "wazna": True,
+        "opis": "Pierwsza stabilna wersja silnika wyszukiwarki OLX.",
+        "zmiany": ["Bezgłowe przeszukiwanie, weryfikacja wad i detekcja przesyłek."]
     }
 ]
+
+def wczytaj_patch_notes_z_pliku():
+    if os.path.exists(PLIK_PATCH_NOTES):
+        try:
+            with open(PLIK_PATCH_NOTES, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return DOMYSLNA_HISTORIA_ZMIAN
+    else:
+        # Zapisz domyślną historię przy pierwszym uruchomieniu
+        try:
+            with open(PLIK_PATCH_NOTES, "w", encoding="utf-8") as f:
+                json.dump(DOMYSLNA_HISTORIA_ZMIAN, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+        return DOMYSLNA_HISTORIA_ZMIAN
+
+def zapisz_patch_notes_do_pliku():
+    try:
+        with open(PLIK_PATCH_NOTES, "w", encoding="utf-8") as f:
+            json.dump(st.session_state["historia_zmian"], f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        st.error(f"Błąd zapisu Patch Notes: {e}")
+
+# --- INICJALIZACJA SESSION STATE ---
+if "bufor_zgloszen" not in st.session_state:
+    st.session_state["bufor_zgloszen"] = wczytaj_bufor_z_pliku()
+
+if "historia_zmian" not in st.session_state:
+    st.session_state["historia_zmian"] = wczytaj_patch_notes_z_pliku()
+
+if "zalogowany_admin" not in st.session_state:
+    st.session_state["zalogowany_admin"] = False
+
+if "stop_requested" not in st.session_state:
+    st.session_state["stop_requested"] = False
 
 SLOWA_USZKODZONE = [
     'uszkodzon', 'zepsut', 'nie działy', 'nie działa', 'niedziała', 'na części', 
@@ -228,9 +348,11 @@ def parse_price(price_str):
     except ValueError:
         return 0.0
 
+# --- DOKŁADNA ANALIZA OPISU I DETEKCJA WAD ---
 def analizuj_i_stworz_skrot_opisu(tekst_opisu):
-    if not tekst_opisu or tekst_opisu == "Brak treści opisu w ogłoszeniu.":
+    if not tekst_opisu or tekst_opisu.strip() in ["Brak treści opisu w ogłoszeniu.", "Brak podglądu opisu."]:
         return False, "", "Brak treści opisu w ogłoszeniu.", []
+    
     tekst_lower = tekst_opisu.lower()
     znalezione_wady = [s for s in SLOWA_USZKODZONE if s in tekst_lower]
     czy_uszkodzony = bool(znalezione_wady)
@@ -273,7 +395,44 @@ def czy_trafna_oferta(szukana_fraza, znaleziony_tytul, url="", tresc_opisu="", p
     trafione_wszystkie = [s for s in slowa_zapytania if s in pelny_tekst]
     return (len(trafione_wszystkie) / len(slowa_zapytania)) >= 0.4
 
-# --- PARSER OBIEKTÓW JSON NEXT_DATA Z PAMIĘCI / HTML ---
+# --- POBIERANIE PEŁNEJ TREŚCI OPISU ZE STRONY ---
+def pobierz_tresc_opisu_http(url):
+    try:
+        res = requests.get(url, headers=HTTP_HEADERS, timeout=6)
+        if res.status_code == 200:
+            soup = BeautifulSoup(res.text, 'html.parser')
+            
+            # 1. OLX - __NEXT_DATA__
+            next_data = soup.find('script', id='__NEXT_DATA__')
+            if next_data and next_data.string:
+                try:
+                    data_json = json.loads(next_data.string)
+                    ad_data = data_json.get('props', {}).get('pageProps', {}).get('ad', {})
+                    description_raw = ad_data.get('description', '')
+                    if description_raw:
+                        clean_desc = BeautifulSoup(description_raw, 'html.parser').get_text(separator="\n").strip()
+                        if clean_desc:
+                            return clean_desc
+                except Exception:
+                    pass
+            
+            # 2. Otomoto
+            if "otomoto.pl" in url:
+                otomoto_desc = soup.find('div', {'data-testid': 'advert-description'}) or \
+                               soup.find('div', class_=re.compile(r'description-content|ooa-1e9k97d'))
+                if otomoto_desc:
+                    return otomoto_desc.get_text(separator="\n").strip()
+
+            # 3. OLX Fallback HTML
+            desc_div = soup.find('div', {'data-cy': 'ad_description'}) or \
+                       soup.find('div', {'data-testid': 'ad_description'}) or \
+                       soup.find('div', class_=re.compile(r'css-1o9z2s|css-bg1awf|css-1tvwu9x'))
+            if desc_div:
+                return desc_div.get_text(separator="\n").strip()
+    except Exception:
+        pass
+    return "Brak treści opisu w ogłoszeniu."
+
 def wyciagnij_ads_z_json_dict(data_json):
     znalezione = []
     if not isinstance(data_json, dict):
@@ -287,13 +446,11 @@ def wyciagnij_ads_z_json_dict(data_json):
     )
 
     for ad in ads_list:
-        if not isinstance(ad, dict):
-            continue
+        if not isinstance(ad, dict): continue
 
         tytul = ad.get('title', '')
         url_ad = ad.get('url', '')
-        if not tytul or not url_ad:
-            continue
+        if not tytul or not url_ad: continue
 
         price_obj = ad.get('price', {})
         price_val = 0.0
@@ -344,7 +501,7 @@ def formatuj_czas(sekundy):
     m, s = divmod(s, 60)
     return f"{m}m {s}s" if m > 0 else f"{s}s"
 
-# --- TRÓJWARSTWOWY SILNIK SKANOWANIA (PLAYWRIGHT JS + SSR + API) ---
+# --- ZODPORNIONY SILNIK WYSZUKIWANIA Z PEŁNĄ ANALIZĄ OPISÓW ---
 def pobierz_oferty_olx(fraza, kategorie_slugs, stany_olx, cena_min, cena_max, pasek_postepu, tekst_statusu, stop_container):
     oferty, odrzucone_list, unikalne_linki = [], [], set()
     MAX_OFERT = 100
@@ -357,7 +514,7 @@ def pobierz_oferty_olx(fraza, kategorie_slugs, stany_olx, cena_min, cena_max, pa
     if cena_min > 0: olx_price_param += f"&search%5Bfilter_float_price%3Afrom%5D={cena_min}"
     if cena_max > 0: olx_price_param += f"&search%5Bfilter_float_price%3Ato%5D={cena_max}"
 
-    tekst_statusu.write("⚡ Uruchamiam silnik skanujący OLX...")
+    tekst_statusu.write("⚡ Uruchamiam skaner OLX z analizą opisów...")
     pasek_postepu.progress(5)
     start_time = time.time()
 
@@ -365,13 +522,12 @@ def pobierz_oferty_olx(fraza, kategorie_slugs, stany_olx, cena_min, cena_max, pa
     if "oferty" not in slugs_do_przeszukania:
         slugs_do_przeszukania.append("oferty")
 
-    # WARSTWA 1: Playwright Headless + JS window.__NEXT_DATA__
+    # KROK 1: Skanowanie Playwright
     try:
-        tekst_statusu.write("⚡ Skanuję w trybie renderowania Playwright...")
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"])
             context = browser.new_context(
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
                 viewport={"width": 1366, "height": 768},
                 locale="pl-PL"
             )
@@ -384,72 +540,34 @@ def pobierz_oferty_olx(fraza, kategorie_slugs, stany_olx, cena_min, cena_max, pa
                     if len(oferty) >= MAX_OFERT or st.session_state.get("stop_requested", False): break
 
                     elapsed_sec = time.time() - start_time
-                    tekst_statusu.write(f"⚡ Przeglądarka renderuje stornę {strona} ({kategoria_slug}) | Trafne: {len(oferty)} | ⏱️ {formatuj_czas(elapsed_sec)}")
+                    tekst_statusu.write(f"⚡ Skanowanie ({kategoria_slug}, str. {strona}) | Trafnych: {len(oferty)} | ⏱️ {formatuj_czas(elapsed_sec)}")
 
                     target_url = f"https://www.olx.pl/{kategoria_slug}/q-{olx_query}/?page={strona}&search%5Border%5D=filter_float_price%3Aasc{olx_price_param}"
                     
                     try:
                         page.goto(target_url, wait_until="domcontentloaded", timeout=10000)
-                        
-                        # Pobranie obiektu window.__NEXT_DATA__ wygenerowanego w przeglądarce
                         next_data_js = page.evaluate('() => window.__NEXT_DATA__')
                         extracted_ads = wyciagnij_ads_z_json_dict(next_data_js) if next_data_js else []
 
-                        if not extracted_ads:
-                            # Rezerwowe wyciągnięcie kart z kodu HTML strony Playwright
-                            cards = page.query_selector_all('div[data-cy="l-card"], div[data-testid="l-card"], [data-testid="ad-card"]')
-                            if not cards: break
-                            
-                            for card in cards:
-                                if len(oferty) >= MAX_OFERT: break
-                                t_el = card.query_selector('h6, h4, h3')
-                                p_el = card.query_selector('p[data-testid="ad-price"], [data-cy="ad-price"]')
-                                l_el = card.query_selector('a')
-
-                                if t_el and p_el and l_el:
-                                    tytul_t = t_el.inner_text().strip()
-                                    cena_t = p_el.inner_text().strip()
-                                    cena_n = parse_price(cena_t)
-                                    link_t = l_el.get_attribute('href') or ""
-                                    if link_t and not link_t.startswith('http'): link_t = "https://www.olx.pl" + link_t
-
-                                    if link_t in unikalne_linki: continue
-
-                                    if cena_min > 0 and cena_n < cena_min and cena_n > 0: continue
-                                    if cena_max > 0 and cena_n > cena_max: continue
-
-                                    if czy_trafna_oferta(fraza_clean, tytul_t, link_t):
-                                        unikalne_linki.add(link_t)
-                                        oferty.append({
-                                            "źródło": "Otomoto" if "otomoto.pl" in link_t else "OLX",
-                                            "tytuł": tytul_t,
-                                            "cena_str": cena_t,
-                                            "cena_val": cena_n,
-                                            "link": link_t,
-                                            "ostrzezenie": "",
-                                            "czy_uszkodzony": False,
-                                            "skrot_opisu": "Szczegóły w ogłoszeniu na OLX.",
-                                            "cechy": [],
-                                            "dostawa": "📦 Dostawa OLX / Inna"
-                                        })
-                        else:
+                        if extracted_ads:
                             for ad in extracted_ads:
-                                if len(oferty) >= MAX_OFERT: break
-                                tytul_t = ad['tytul']
-                                link_t = ad['url']
-                                cena_t = ad['cena_str']
-                                cena_n = ad['cena_val']
+                                if len(oferty) >= MAX_OFERT or st.session_state.get("stop_requested", False): break
+                                tytul_t, link_t, cena_t, cena_n = ad['tytul'], ad['url'], ad['cena_str'], ad['cena_val']
 
                                 if link_t in unikalne_linki: continue
-
                                 if cena_min > 0 and cena_n < cena_min and cena_n > 0: continue
                                 if cena_max > 0 and cena_n > cena_max: continue
 
-                                if not czy_trafna_oferta(fraza_clean, tytul_t, link_t, ad['description'], ad['parametry']):
+                                # GWARANCJA POBRANIA PEŁNEGO OPISU DLA ANALIZY
+                                opis_tekst = ad['description']
+                                if not opis_tekst or len(opis_tekst) < 20:
+                                    opis_tekst = pobierz_tresc_opisu_http(link_t)
+
+                                if not czy_trafna_oferta(fraza_clean, tytul_t, link_t, opis_tekst, ad['parametry']):
                                     odrzucone_list.append(f"{tytul_t} ({cena_t})")
                                     continue
 
-                                czy_u, ostrz, skrot, cechy = analizuj_i_stworz_skrot_opisu(ad['description'])
+                                czy_u, ostrz, skrot, cechy = analizuj_i_stworz_skrot_opisu(opis_tekst)
                                 dostawa_str = "📦 Przesyłka OLX" if ad['is_delivery'] else "✉️ Dostawa prywatna / Odbiór"
 
                                 unikalne_linki.add(link_t)
@@ -461,7 +579,7 @@ def pobierz_oferty_olx(fraza, kategorie_slugs, stany_olx, cena_min, cena_max, pa
                                     "link": link_t,
                                     "ostrzezenie": ostrz,
                                     "czy_uszkodzony": czy_u,
-                                    "skrot_opisu": skrot if skrot else "Brak treści opisu w ogłoszeniu.",
+                                    "skrot_opisu": skrot,
                                     "cechy": cechy,
                                     "dostawa": dostawa_str
                                 })
@@ -474,9 +592,9 @@ def pobierz_oferty_olx(fraza, kategorie_slugs, stany_olx, cena_min, cena_max, pa
     except Exception:
         pass
 
-    # WARSTWA 2: Fallback HTTP SSR (jeśli Playwright nie wyciągnął min. 1 oferty)
+    # KROK 2: Rezerwowy SSR HTTP
     if not oferty and not st.session_state.get("stop_requested", False):
-        tekst_statusu.write("⚡ Uruchamiam tryb rezerwowy HTTP SSR...")
+        tekst_statusu.write("⚡ Uruchamiam tryb rezerwowy HTTP...")
         try:
             for kategoria_slug in slugs_do_przeszukania:
                 if len(oferty) >= MAX_OFERT or st.session_state.get("stop_requested", False): break
@@ -487,79 +605,32 @@ def pobierz_oferty_olx(fraza, kategorie_slugs, stany_olx, cena_min, cena_max, pa
                     soup = BeautifulSoup(res.text, 'html.parser')
                     next_data_script = soup.find('script', id='__NEXT_DATA__')
                     if next_data_script and next_data_script.string:
-                        try:
-                            parsed_json = json.loads(next_data_script.string)
-                            ads = wyciagnij_ads_z_json_dict(parsed_json)
-                            for ad in ads:
-                                if len(oferty) >= MAX_OFERT: break
-                                link_t = ad['url']
-                                if link_t in unikalne_linki: continue
-                                
-                                cena_n = ad['cena_val']
-                                if cena_min > 0 and cena_n < cena_min and cena_n > 0: continue
-                                if cena_max > 0 and cena_n > cena_max: continue
+                        parsed_json = json.loads(next_data_script.string)
+                        ads = wyciagnij_ads_z_json_dict(parsed_json)
+                        for ad in ads:
+                            if len(oferty) >= MAX_OFERT: break
+                            link_t = ad['url']
+                            if link_t in unikalne_linki: continue
+                            cena_n = ad['cena_val']
+                            if cena_min > 0 and cena_n < cena_min and cena_n > 0: continue
+                            if cena_max > 0 and cena_n > cena_max: continue
 
-                                if czy_trafna_oferta(fraza_clean, ad['tytul'], link_t, ad['description'], ad['parametry']):
-                                    czy_u, ostrz, skrot, cechy = analizuj_i_stworz_skrot_opisu(ad['description'])
-                                    unikalne_linki.add(link_t)
-                                    oferty.append({
-                                        "źródło": "Otomoto" if "otomoto.pl" in link_t else "OLX",
-                                        "tytuł": ad['tytul'],
-                                        "cena_str": ad['cena_str'],
-                                        "cena_val": cena_n,
-                                        "link": link_t,
-                                        "ostrzezenie": ostrz,
-                                        "czy_uszkodzony": czy_u,
-                                        "skrot_opisu": skrot if skrot else "Brak treści opisu w ogłoszeniu.",
-                                        "cechy": cechy,
-                                        "dostawa": "📦 Dostawa OLX / Inna"
-                                    })
-                        except Exception:
-                            pass
-        except Exception:
-            pass
-
-    # WARSTWA 3: API Fallback
-    if not oferty and not st.session_state.get("stop_requested", False):
-        tekst_statusu.write("⚡ Próba awaryjna przez OLX API...")
-        try:
-            api_url = f"https://www.olx.pl/api/v1/offers/?query={olx_query}&limit=40"
-            if cena_min > 0: api_url += f"&filter_float_price:from={cena_min}"
-            if cena_max > 0: api_url += f"&filter_float_price:to={cena_max}"
-
-            resp = requests.get(api_url, headers=HTTP_HEADERS, timeout=8)
-            if resp.status_code == 200:
-                data_api = resp.json().get('data', [])
-                for item in data_api:
-                    if len(oferty) >= MAX_OFERT: break
-                    tytul_t = item.get('title', '')
-                    url_t = item.get('url', '')
-                    if not tytul_t or not url_t: continue
-
-                    link_t = url_t if url_t.startswith('http') else "https://www.olx.pl" + url_t
-                    if link_t in unikalne_linki: continue
-
-                    price_obj = item.get('price', {})
-                    price_val = float(price_obj.get('value', 0.0) or 0.0) if isinstance(price_obj, dict) else 0.0
-                    price_str = price_obj.get('displayValue', f"{price_val:.0f} zł") if isinstance(price_obj, dict) else f"{price_val:.0f} zł"
-
-                    if cena_min > 0 and price_val < cena_min and price_val > 0: continue
-                    if cena_max > 0 and price_val > cena_max: continue
-
-                    if czy_trafna_oferta(fraza_clean, tytul_t, link_t):
-                        unikalne_linki.add(link_t)
-                        oferty.append({
-                            "źródło": "Otomoto" if "otomoto.pl" in link_t else "OLX",
-                            "tytuł": tytul_t,
-                            "cena_str": price_str,
-                            "cena_val": price_val,
-                            "link": link_t,
-                            "ostrzezenie": "",
-                            "czy_uszkodzony": False,
-                            "skrot_opisu": "Brak podglądu opisu.",
-                            "cechy": [],
-                            "dostawa": "📦 Dostawa OLX / Inna"
-                        })
+                            opis_tekst = pobierz_tresc_opisu_http(link_t)
+                            if czy_trafna_oferta(fraza_clean, ad['tytul'], link_t, opis_tekst, ad['parametry']):
+                                czy_u, ostrz, skrot, cechy = analizuj_i_stworz_skrot_opisu(opis_tekst)
+                                unikalne_linki.add(link_t)
+                                oferty.append({
+                                    "źródło": "Otomoto" if "otomoto.pl" in link_t else "OLX",
+                                    "tytuł": ad['tytul'],
+                                    "cena_str": ad['cena_str'],
+                                    "cena_val": cena_n,
+                                    "link": link_t,
+                                    "ostrzezenie": ostrz,
+                                    "czy_uszkodzony": czy_u,
+                                    "skrot_opisu": skrot,
+                                    "cechy": cechy,
+                                    "dostawa": "📦 Dostawa OLX / Inna"
+                                })
         except Exception:
             pass
 
@@ -724,9 +795,36 @@ with tab_search:
 # === ZAKŁADKA 2: PATCH NOTES ===
 with tab_patch_notes:
     st.header("📋 Historia Zmian (Patch Notes)")
+
+    # Formularz dodawania nowego Patch Note dla Admina
+    if st.session_state["zalogowany_admin"]:
+        with st.expander("➕ Dodaj nową wersję Patch Notes (Tryb Admina)"):
+            with st.form("formularz_patch_note", clear_on_submit=True):
+                wersja_in = st.text_input("Numer wersji:", placeholder="np. v3.0.0")
+                opis_in = st.text_input("Krótki opis wydania:", placeholder="np. Nowy silnik analityczny")
+                zmiany_raw = st.text_area("Lista zmian (każda zmiana w nowej linii):", placeholder="Wprowadzono funkcję X\nPoprawiono błąd Y")
+                wazna_in = st.checkbox("Ważna wersja (Major Release)", value=True)
+                
+                if st.form_submit_button("Opublikuj Patch Note"):
+                    if wersja_in and opis_in and zmiany_raw:
+                        lista_z = [z.strip() for z in zmiany_raw.split("\n") if z.strip()]
+                        nowy_entry = {
+                            "wersja": wersja_in.strip(),
+                            "data": datetime.now().strftime("%d %B %Y"),
+                            "wazna": wazna_in,
+                            "opis": opis_in.strip(),
+                            "zmiany": lista_z
+                        }
+                        st.session_state["historia_zmian"].insert(0, nowy_entry)
+                        zapisz_patch_notes_do_pliku()
+                        st.success(f"Dodano wpis dla {wersja_in}!")
+                        st.rerun()
+                    else:
+                        st.error("Proszę wypełnić wszystkie pola.")
+
     tylko_wazne = st.checkbox("Pokaż tylko najważniejsze wersje (Major Releases)", value=False)
 
-    for item in HISTORIA_ZMIAN:
+    for item in st.session_state["historia_zmian"]:
         if tylko_wazne and not item["wazna"]: continue
         badge = "🚀 WAŻNA WERSJA" if item["wazna"] else "🛠️ POPRAWKA"
         st.subheader(f"{item['wersja']} — {badge}")
