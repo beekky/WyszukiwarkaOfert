@@ -18,131 +18,179 @@ import json
 import os
 from datetime import datetime
 
-st.set_page_config(page_title="Wyszukiwarka Ofert OLX", page_icon="🔍", layout="wide")
+st.set_page_config(page_title="Porównywarka Ofert OLX | Stevia Style", page_icon="⚡", layout="wide")
 
-# --- CUSTOM CSS: PROFESJONALNY MOTYW GRAFICZNY ---
+# --- CUSTOM CSS: STEVIA AUTOMATION STYLE + ODPORNOŚĆ NA TRYB JASNY/CIEMNY ---
 st.markdown("""
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
     
-    html, body, [class*="css"] {
-        font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    /* Główne zmienne kolorów Stevia Automation */
+    :root {
+        --stevia-bg: #0a0f1d;
+        --stevia-card-bg: #111827;
+        --stevia-card-border: #1e293b;
+        --stevia-cyan: #00f2fe;
+        --stevia-blue: #3b82f6;
+        --stevia-gradient: linear-gradient(135deg, #00f2fe 0%, #4facfe 100%);
+        --stevia-text-main: #f8fafc;
+        --stevia-text-muted: #94a3b8;
     }
-    
-    /* Hero Header */
-    .hero-container {
-        padding: 1.5rem 0 1rem 0;
-        margin-bottom: 1rem;
+
+    /* Wymuszenie stałego tła aplikacji niezależnie od motywu Streamlita (Light/Dark) */
+    html, body, [data-testid="stAppViewContainer"], [data-testid="stHeader"], .main {
+        background-color: var(--stevia-bg) !important;
+        color: var(--stevia-text-main) !important;
+        font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif !important;
     }
-    .hero-title {
-        font-size: 2.3rem;
+
+    /* Gwarancja czytelności etykiet i tekstów w trybie jasnym i ciemnym */
+    label, p, span, h1, h2, h3, h4, h5, h6, .stMarkdown {
+        color: var(--stevia-text-main) !important;
+    }
+
+    /* Zabezpieczenie pól wprowadzania danych (Input, Select, Textarea) */
+    input, textarea, div[data-baseweb="select"], div[data-baseweb="base-input"] {
+        background-color: #1e293b !important;
+        color: #ffffff !important;
+        border-color: #334155 !important;
+        border-radius: 8px !important;
+    }
+    input::placeholder, textarea::placeholder {
+        color: #64748b !important;
+    }
+
+    /* Hero Banner w stylu Stevia Automation */
+    .stevia-hero {
+        background: linear-gradient(180deg, rgba(0, 242, 254, 0.05) 0%, rgba(10, 15, 29, 0) 100%);
+        border: 1px solid #1e293b;
+        border-radius: 16px;
+        padding: 2.2rem 2rem;
+        margin-bottom: 1.8rem;
+        position: relative;
+        overflow: hidden;
+    }
+    .stevia-hero::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 4px;
+        height: 100%;
+        background: var(--stevia-gradient);
+    }
+    .stevia-hero-title {
+        font-size: 2.4rem;
         font-weight: 800;
         letter-spacing: -0.02em;
-        background: linear-gradient(135deg, #38bdf8 0%, #818cf8 50%, #c084fc 100%);
+        background: var(--stevia-gradient);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
-        margin-bottom: 0.3rem;
+        margin-bottom: 0.4rem;
     }
-    .hero-subtitle {
+    .stevia-hero-sub {
         font-size: 1.05rem;
-        color: #94a3b8;
-        font-weight: 400;
+        color: var(--stevia-text-muted) !important;
+        max-width: 800px;
     }
 
-    /* Tab Bar Customization */
+    /* Zakładki (Tabs) w stylu Tech */
     div[data-baseweb="tab-list"] {
-        gap: 10px !important;
-        border-bottom: 1px solid #334155 !important;
-        padding-bottom: 8px !important;
+        gap: 12px !important;
+        border-bottom: 1px solid #1e293b !important;
+        padding-bottom: 10px !important;
     }
     button[data-baseweb="tab"] {
-        border-radius: 10px !important;
-        padding: 8px 20px !important;
+        border-radius: 8px !important;
+        padding: 10px 22px !important;
         font-weight: 600 !important;
         font-size: 0.95rem !important;
-        color: #94a3b8 !important;
-        background-color: rgba(30, 41, 59, 0.4) !important;
-        border: 1px solid transparent !important;
-        transition: all 0.2s ease !important;
+        color: var(--stevia-text-muted) !important;
+        background-color: #111827 !important;
+        border: 1px solid #1e293b !important;
+        transition: all 0.25s ease !important;
     }
     button[aria-selected="true"] {
-        background-color: #1e293b !important;
-        color: #38bdf8 !important;
-        border: 1px solid #3b82f6 !important;
-        box-shadow: 0 4px 12px rgba(59, 130, 246, 0.15) !important;
+        background: var(--stevia-gradient) !important;
+        color: #0f172a !important;
+        font-weight: 700 !important;
+        border-color: transparent !important;
+        box-shadow: 0 4px 20px rgba(0, 242, 254, 0.3) !important;
     }
 
-    /* Buttons Styling */
+    /* Przyciski główne Akcji */
     div.stButton > button {
-        border-radius: 10px !important;
-        font-weight: 600 !important;
-        padding: 10px 24px !important;
-        transition: all 0.2s ease-in-out !important;
+        border-radius: 8px !important;
+        font-weight: 700 !important;
+        padding: 12px 28px !important;
+        transition: all 0.25s ease !important;
     }
     div.stButton > button[kind="primary"], div.stButton > button:first-child {
-        background: linear-gradient(135deg, #4f46e5 0%, #3b82f6 100%) !important;
-        color: white !important;
+        background: var(--stevia-gradient) !important;
+        color: #0f172a !important;
         border: none !important;
-        box-shadow: 0 4px 14px rgba(79, 70, 229, 0.3) !important;
+        box-shadow: 0 4px 15px rgba(0, 242, 254, 0.25) !important;
     }
     div.stButton > button:hover {
-        transform: translateY(-1px) !important;
-        box-shadow: 0 6px 20px rgba(59, 130, 246, 0.4) !important;
+        transform: translateY(-2px) !important;
+        box-shadow: 0 6px 22px rgba(0, 242, 254, 0.4) !important;
     }
 
-    /* Custom Offer Card */
-    .offer-card {
-        background-color: #1e293b;
-        border: 1px solid #334155;
-        border-radius: 14px;
-        padding: 20px;
+    /* Karta Oferty (Stevia Automation Product Card) */
+    .stevia-card {
+        background-color: var(--stevia-card-bg);
+        border: 1px solid var(--stevia-card-border);
+        border-radius: 12px;
+        padding: 22px;
         margin-bottom: 16px;
         transition: all 0.25s ease-in-out;
+        position: relative;
     }
-    .offer-card:hover {
-        border-color: #6366f1;
-        box-shadow: 0 8px 25px rgba(99, 102, 241, 0.15);
+    .stevia-card:hover {
+        border-color: var(--stevia-cyan);
+        box-shadow: 0 8px 30px rgba(0, 242, 254, 0.12);
         transform: translateY(-2px);
     }
-    .offer-rank {
-        font-size: 1.3rem;
+    .stevia-rank {
+        font-size: 1.4rem;
         font-weight: 800;
-        color: #818cf8;
+        color: var(--stevia-cyan);
     }
-    .price-badge {
-        font-size: 1.35rem;
+    .stevia-price {
+        font-size: 1.4rem;
         font-weight: 800;
         color: #10b981;
-        background: rgba(16, 185, 129, 0.12);
-        padding: 6px 14px;
-        border-radius: 10px;
-        border: 1px solid rgba(16, 185, 129, 0.3);
+        background: rgba(16, 185, 129, 0.1);
+        padding: 6px 16px;
+        border-radius: 8px;
+        border: 1px solid rgba(16, 185, 129, 0.25);
         display: inline-block;
     }
-    .tag-pill {
+    .stevia-pill {
         display: inline-block;
         font-size: 0.82rem;
-        padding: 4px 12px;
-        border-radius: 20px;
-        background: #334155;
-        color: #cbd5e1;
+        padding: 5px 12px;
+        border-radius: 6px;
+        background: #1e293b;
+        color: #cbd5e1 !important;
         margin-right: 6px;
         margin-top: 6px;
         font-weight: 500;
+        border: 1px solid #334155;
     }
-    .tag-delivery {
-        background: rgba(14, 165, 233, 0.15);
-        color: #38bdf8;
-        border: 1px solid rgba(14, 165, 233, 0.3);
+    .stevia-pill-delivery {
+        background: rgba(0, 242, 254, 0.08);
+        color: var(--stevia-cyan) !important;
+        border: 1px solid rgba(0, 242, 254, 0.25);
     }
-    .warning-box {
-        background-color: rgba(239, 68, 68, 0.12);
-        border: 1px solid rgba(239, 68, 68, 0.3);
-        color: #fca5a5;
+    .stevia-warning {
+        background-color: rgba(239, 68, 68, 0.1);
+        border: 1px solid rgba(239, 68, 68, 0.25);
+        color: #fca5a5 !important;
         padding: 10px 14px;
         border-radius: 8px;
         font-size: 0.9rem;
-        margin-top: 8px;
+        margin-top: 10px;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -178,15 +226,23 @@ if "zalogowany_admin" not in st.session_state:
 # --- STRUKTURA HISTORII ZMIAN (PATCH NOTES) ---
 HISTORIA_ZMIAN = [
     {
+        "wersja": "v1.8.0",
+        "data": "28 Września 2026",
+        "wazna": True,
+        "opis": "Implementacja szaty graficznej Stevia Automation oraz pelna kompatybilność z motywem jasnym/ciemnym.",
+        "zmiany": [
+            "Zaprojektowano interfejs w oparciu o identyfikację wizualną Stevia Automation (ciemne granaty, neonowy cyjan, gradienty).",
+            "Wymuszono spójną kolorystykę (używając reguł CSS !important) uniezależniając aplikację od wybranego trybu Streamlita.",
+            "Wyeliminowano problemy z nieczytelnością pól tekstowych i etykiet."
+        ]
+    },
+    {
         "wersja": "v1.7.0",
         "data": "28 Września 2026",
         "wazna": True,
-        "opis": "Kompletna przebudowa szaty graficznej na nowoczesny styl e-commerce / SaaS.",
+        "opis": "Przebudowa szaty graficznej na styl e-commerce / SaaS.",
         "zmiany": [
-            "Wprowadzono dedykowane karty ofert z cieniami i animacją najazdu (Hover elevation).",
-            "Stworzono Hero Banner z nowoczesną tytulaturą i podtytułem.",
-            "Stylizowane, zaokrąglone zakładki nawigacyjne oraz wyróżnione badges cenowe i dostaw.",
-            "Przebudowano odznaki ostrzeżeń i podgląd opisu w nowoczesne pigułki (pills)."
+            "Wprowadzono karty ofert z cieniami i animacją najazdu."
         ]
     },
     {
@@ -204,18 +260,7 @@ HISTORIA_ZMIAN = [
         "wazna": True,
         "opis": "System statusów zgłoszeń i inteligentna agregacja duplikatów.",
         "zmiany": [
-            "Dodano możliwość zmiany statusów zgłoszeń przez admina (Oczekuje / W trakcie / Rozwiązany / Odrzucony).",
-            "Wprowadzono automatyczne wykrywanie i łączenie powtarzających się zgłoszeń z podbiciem priorytetu."
-        ]
-    },
-    {
-        "wersja": "v1.3.0",
-        "data": "28 Września 2026",
-        "wazna": True,
-        "opis": "Zabezpieczenie bufora zgłoszeń i autoryzacja administratora.",
-        "zmiany": [
-            "Ukryto podgląd bufora błędów dla zwykłych użytkowników.",
-            "Dodano okno popup z logowaniem (login: admin, hasło: admin)."
+            "Dodano możliwość zmiany statusów zgłoszeń przez admina oraz automatyczne wykrywanie duplikatów."
         ]
     }
 ]
@@ -572,9 +617,9 @@ def dialog_logowania():
 
 # --- HERO NAGŁÓWEK ---
 st.markdown("""
-    <div class="hero-container">
-        <div class="hero-title">🔍 Porównywarka Ofert OLX</div>
-        <div class="hero-subtitle">Inteligentna wyszukiwarka okazji z filtrowaniem opisów, weryfikacją wad i blokadą reklam.</div>
+    <div class="stevia-hero">
+        <div class="stevia-hero-title">⚡ Porównywarka Ofert OLX</div>
+        <div class="stevia-hero-sub">Automatyczna analityka cenowa, skanowanie treści opisów pod kątem wad oraz wykrywanie gwarancji i form dostawy.</div>
     </div>
 """, unsafe_allow_html=True)
 
@@ -641,26 +686,25 @@ with tab_search:
                     col_rank, col_main, col_price, col_btn = st.columns([0.8, 5, 2.2, 2])
                     
                     with col_rank:
-                        st.markdown(f"<div class='offer-rank'>#{idx}</div>", unsafe_allow_html=True)
+                        st.markdown(f"<div class='stevia-rank'>#{idx}</div>", unsafe_allow_html=True)
                         st.caption(f"**{o['źródło']}**")
                     
                     with col_main:
                         st.markdown(f"#### {o['tytuł']}")
                         
-                        # Tagi dostawy i cech
-                        tags_html = f"<span class='tag-pill tag-delivery'>🚚 {o['dostawa']}</span>"
+                        tags_html = f"<span class='stevia-pill stevia-pill-delivery'>🚚 {o['dostawa']}</span>"
                         for c in o['cechy']:
-                            tags_html += f"<span class='tag-pill'>{c}</span>"
+                            tags_html += f"<span class='stevia-pill'>{c}</span>"
                         st.markdown(tags_html, unsafe_allow_html=True)
 
                         with st.expander("📄 Szczegółowy podgląd opisu"):
                             st.text(o['skrot_opisu'])
 
                         if o['ostrzezenie']:
-                            st.markdown(f"<div class='warning-box'>{o['ostrzezenie']}</div>", unsafe_allow_html=True)
+                            st.markdown(f"<div class='stevia-warning'>{o['ostrzezenie']}</div>", unsafe_allow_html=True)
 
                     with col_price:
-                        st.markdown(f"<div class='price-badge'>💰 {o['cena_str']}</div>", unsafe_allow_html=True)
+                        st.markdown(f"<div class='stevia-price'>💰 {o['cena_str']}</div>", unsafe_allow_html=True)
                     
                     with col_btn:
                         st.link_button("Zobacz ofertę ↗", o['link'], use_container_width=True)
