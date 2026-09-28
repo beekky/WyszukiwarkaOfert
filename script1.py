@@ -1,7 +1,7 @@
 import subprocess
 import sys
 
-# Automatyczna instalacja przeglądarki Playwright na serwerze chmurowym
+# Automatyczna instalacja przeglądarki Playwright w chmurze
 try:
     subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=True)
 except Exception:
@@ -14,30 +14,78 @@ from playwright.sync_api import sync_playwright
 import urllib.parse
 import re
 import time
+from datetime import datetime
 
 st.set_page_config(page_title="Wyszukiwarka Ofert OLX", layout="wide")
 
+# --- STRUKTURA HISTORII ZMIAN (PATCH NOTES) ---
+HISTORIA_ZMIAN = [
+    {
+        "wersja": "v1.2.0",
+        "data": "28 Września 2026",
+        "wazna": True,
+        "opis": "Dodanie bufora zgłoszeń błędów od użytkowników i rozbudowa architektury Patch Notes.",
+        "zmiany": [
+            "Wprowadzono dedykowaną zakładkę do zgłaszania błędów, propozycji i problemów przez użytkowników.",
+            "Stworzono aktywny bufor zapisujący zgłoszenia użytkowników w czasie rzeczywistym.",
+            "Zrekonstruowano strukturę historii zmian z możliwością filtrowania wydań głównych (Major) i drobnych (Minor)."
+        ]
+    },
+    {
+        "wersja": "v1.1.0",
+        "data": "28 Września 2026",
+        "wazna": True,
+        "opis": "Oficjalna wersja stabilna z natywnymi zakładkami i pełnym skanowaniem opisów.",
+        "zmiany": [
+            "Przywrócenie natywnych zakładek (st.tabs) u góry ekranu.",
+            "Dogłębne przeszukiwanie opisu weryfikujące tytuł, slug oraz treść pod kątem szukanej frazy.",
+            "Agresywna blokada reklam i trackerów zwiększająca wydajność skanowania."
+        ]
+    },
+    {
+        "wersja": "v1.0.4",
+        "data": "28 Września 2026",
+        "wazna": False,
+        "opis": "Poprawki interfejsu i stabilności.",
+        "zmiany": [
+            "Optymalizacja bocznego paska nawigacji i wymuszenie odświeżania pamięci podręcznej.",
+            "Poprawa czytelności cen i kontenerów wyników."
+        ]
+    },
+    {
+        "wersja": "v1.0.0",
+        "data": "28 Września 2026",
+        "wazna": True,
+        "opis": "Pierwsza pełna wersja silnika wyszukiwarki OLX.",
+        "zmiany": [
+            "Wyszukiwanie bezgłowe w tle (Headless Playwright).",
+            "Obsługa wielu kategorii OLX jednocześnie z dedukcją duplikatów.",
+            "Detekcja Przesyłki OLX, wysyłki prywatnej, odbioru osobistego oraz analiza opisu pod kątem wad."
+        ]
+    }
+]
+
 SLOWA_USZKODZONE = [
-    'uszkodzon', 'zepsut', 'nie działy', 'nie działa', 'niedziała', 'na części',
-    'defekt', 'pęknięt', 'spalon', 'nietestowan', 'brak możliwości sprawdzenia',
+    'uszkodzon', 'zepsut', 'nie działy', 'nie działa', 'niedziała', 'na części', 
+    'defekt', 'pęknięt', 'spalon', 'nietestowan', 'brak możliwości sprawdzenia', 
     'wada', 'wady', 'zbit', 'po zalaniu', 'nietestowane', 'stan nieznany', 'usterka'
 ]
 
 SMIECI_BRANŻOWE = {
-    'bluza', 'bluzka', 'koszulka', 'buty', 'spodnie', 'dres', 'kurtka',
+    'bluza', 'bluzka', 'koszulka', 'buty', 'spodnie', 'dres', 'kurtka', 
     'gra', 'gry', 'ps3', 'ps4', 'ps5', 'xbox', 'dvd', 'cd', 'spódnica', 'pudełko'
 }
 
 GENERYCZNE_SLOWA = {
-    'champion', 'champions', 'sport', 'sports', 'game', 'games', 'pro', 'max',
+    'champion', 'champions', 'sport', 'sports', 'game', 'games', 'pro', 'max', 
     'plus', 'super', 'mini', 'lite', 'v1', 'v2', 'v3', 'ps3', 'ps4', 'ps5', 'xbox'
 }
 
 DOMENY_REKLAMOWE = [
     'google-analytics', 'googletagmanager', 'doubleclick', 'googleadservices',
-    'facebook.net', 'facebook.com/tr', 'criteo', 'hotjar', 'onesignal',
-    'scorecardresearch', 'analytics', 'adsystem', 'adservice', 'pixel',
-    'tracker', 'rubiconproject', 'pubmatic', 'openx', 'adnxs', 'smartadserver',
+    'facebook.net', 'facebook.com/tr', 'criteo', 'hotjar', 'onesignal', 
+    'scorecardresearch', 'analytics', 'adsystem', 'adservice', 'pixel', 
+    'tracker', 'rubiconproject', 'pubmatic', 'openx', 'adnxs', 'smartadserver', 
     'casalemedia', 'yieldmo', 'taboola', 'outbrain', 'gemius', 'adform', 'quantserve'
 ]
 
@@ -56,6 +104,9 @@ KATEGORIE_OLX = {
     "Antyki i Kolekcje": "antyki-sztuka-kolekcje"
 }
 
+# --- INICJALIZACJA BUFORA ZGŁOSZEŃ W SESSION_STATE ---
+if "bufor_zgloszen" not in st.session_state:
+    st.session_state["bufor_zgloszen"] = []
 
 def wyciagnij_nazwe_z_linku(url_lub_tekst):
     """Pobiera tytuł ze strony sklepu, jeśli podano link."""
@@ -64,10 +115,10 @@ def wyciagnij_nazwe_z_linku(url_lub_tekst):
             headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
             response = requests.get(url_lub_tekst, headers=headers, timeout=5)
             soup = BeautifulSoup(response.text, 'html.parser')
-
+            
             h1 = soup.find('h1')
             title = h1.text.strip() if h1 else soup.title.text.strip()
-
+            
             czysta_nazwa = re.split(r'[|\-–]', title)[0].strip()
             slowa = czysta_nazwa.split()
             if len(slowa) > 6:
@@ -76,7 +127,6 @@ def wyciagnij_nazwe_z_linku(url_lub_tekst):
         except Exception:
             return url_lub_tekst
     return url_lub_tekst
-
 
 def parse_price(price_str):
     if not price_str:
@@ -87,13 +137,12 @@ def parse_price(price_str):
     except ValueError:
         return 999999.0
 
-
 def analizuj_i_stworz_skrot_opisu(tekst_opisu):
     if not tekst_opisu:
         return False, "Brak opisu", "Brak treści opisu w ogłoszeniu.", []
-
+    
     tekst_lower = tekst_opisu.lower()
-
+    
     znalezione_wady = [s for s in SLOWA_USZKODZONE if s in tekst_lower]
     czy_uszkodzony = bool(znalezione_wady)
     ostrzezenie = f"⚠️ Wykryto w opisie słowa sugerujące wadę: {', '.join(set(znalezione_wady))}" if czy_uszkodzony else ""
@@ -114,27 +163,22 @@ def analizuj_i_stworz_skrot_opisu(tekst_opisu):
 
     return czy_uszkodzony, ostrzezenie, skrot_opisu, cechy
 
-
 def wykryj_forme_dostawy(card, tresc_opisu):
     card_html = card.inner_html().lower() if card else ""
-
-    ma_przesylke_olx = "przesyłka olx" in card_html or "kup z przesyłką" in card_html or card.query_selector(
-        '[data-testid="delivery-icon"]') is not None
+    
+    ma_przesylke_olx = "przesyłka olx" in card_html or "kup z przesyłką" in card_html or card.query_selector('[data-testid="delivery-icon"]') is not None
 
     tekst_lower = tresc_opisu.lower() if tresc_opisu else ""
-
-    ma_odbior_osobisty = any(kw in tekst_lower for kw in
-                             ['odbiór osobisty', 'odbior osobisty', 'tylko odbiór', 'tylko odbior', 'odbiór na miejscu',
-                              'odbior na miejscu'])
-    ma_inna_wysylke = any(
-        kw in tekst_lower for kw in ['wysyłka', 'wysylka', 'paczkomat', 'kurier', 'poczta', 'wysyłam', 'wysylam'])
+    
+    ma_odbior_osobisty = any(kw in tekst_lower for kw in ['odbiór osobisty', 'odbior osobisty', 'tylko odbiór', 'tylko odbior', 'odbiór na miejscu', 'odbior na miejscu'])
+    ma_inna_wysylke = any(kw in tekst_lower for kw in ['wysyłka', 'wysylka', 'paczkomat', 'kurier', 'poczta', 'wysyłam', 'wysylam'])
 
     formy = []
     if ma_przesylke_olx:
         formy.append("📦 Przesyłka OLX")
     elif ma_inna_wysylke:
         formy.append("✉️ Wysyłka prywatna (bez OLX)")
-
+        
     if ma_odbior_osobisty:
         formy.append("🤝 Odbiór osobisty")
 
@@ -142,7 +186,6 @@ def wykryj_forme_dostawy(card, tresc_opisu):
         formy.append("ℹ️ Brak szczegółów dostawy")
 
     return " | ".join(formy)
-
 
 def czy_trafna_oferta(szukana_fraza, znaleziony_tytul, url="", tresc_opisu=""):
     url_slug = re.sub(r'[^a-zA-Z0-9]', ' ', url).lower()
@@ -163,11 +206,10 @@ def czy_trafna_oferta(szukana_fraza, znaleziony_tytul, url="", tresc_opisu=""):
             return False
 
     trafione = [s for s in slowa_zapytania if s in pelny_tekst]
-
+    
     if len(slowa_zapytania) >= 2:
         return (len(trafione) / len(slowa_zapytania)) >= 0.5
     return len(trafione) >= 1
-
 
 def zablokuj_zbedne_zasoby_i_reklamy(route):
     url = route.request.url.lower()
@@ -183,7 +225,6 @@ def zablokuj_zbedne_zasoby_i_reklamy(route):
 
     route.continue_()
 
-
 def formatuj_czas(sekundy):
     s = int(sekundy)
     m, s = divmod(s, 60)
@@ -191,12 +232,11 @@ def formatuj_czas(sekundy):
         return f"{m}m {s}s"
     return f"{s}s"
 
-
 def pobierz_oferty_olx(fraza, kategorie_slugs, stany_olx, cena_min, cena_max, pasek_postepu, tekst_statusu):
     oferty = []
     odrzucone_list = []
     unikalne_linki = set()
-
+    
     MAX_OFERT = 100
     MAX_STRON_PER_KAT = 30
 
@@ -204,8 +244,7 @@ def pobierz_oferty_olx(fraza, kategorie_slugs, stany_olx, cena_min, cena_max, pa
     olx_query = re.sub(r'[^a-zA-Z0-9\s-]', '', fraza_clean).strip().replace(" ", "-")
 
     olx_map = {"Nowe": "new", "Używane": "used", "Uszkodzone": "damaged"}
-    olx_state_param = "".join(
-        [f"&search%5Bfilter_enum_state%5D%5B{i}%5D={olx_map[s]}" for i, s in enumerate(stany_olx) if s in olx_map])
+    olx_state_param = "".join([f"&search%5Bfilter_enum_state%5D%5B{i}%5D={olx_map[s]}" for i, s in enumerate(stany_olx) if s in olx_map])
     olx_price_param = ""
     if cena_min > 0:
         olx_price_param += f"&search%5Bfilter_float_price%3Afrom%5D={cena_min}"
@@ -226,7 +265,7 @@ def pobierz_oferty_olx(fraza, kategorie_slugs, stany_olx, cena_min, cena_max, pa
             viewport={"width": 1366, "height": 768},
             locale="pl-PL"
         )
-
+        
         context.route("**/*", zablokuj_zbedne_zasoby_i_reklamy)
         page = context.new_page()
         page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
@@ -248,13 +287,13 @@ def pobierz_oferty_olx(fraza, kategorie_slugs, stany_olx, cena_min, cena_max, pa
                 )
 
                 olx_url = f"https://www.olx.pl/{kategoria_slug}/q-{olx_query}/?page={strona}&search%5Border%5D=filter_float_price%3Aasc{olx_state_param}{olx_price_param}"
-
+                
                 try:
                     page.goto(olx_url, wait_until="commit", timeout=12000)
                     page.wait_for_selector('div[data-cy="l-card"]', timeout=6000)
                 except Exception:
                     pass
-
+                
                 if strona > 1 and f"page={strona}" not in page.url and f"page/{strona}" not in page.url:
                     break
 
@@ -267,14 +306,14 @@ def pobierz_oferty_olx(fraza, kategorie_slugs, stany_olx, cena_min, cena_max, pa
                 if not cards:
                     break
 
-                for card in cards:
+                for card in cards: 
                     if len(oferty) >= MAX_OFERT:
                         break
-
+                        
                     title_elem = card.query_selector('h6, h4, [data-testid="ad-title"]')
                     price_elem = card.query_selector('p[data-testid="ad-price"]')
                     link_elem = card.query_selector('a')
-
+                    
                     if title_elem and price_elem and link_elem:
                         tytul = title_elem.inner_text().strip()
                         cena_str = price_elem.inner_text().strip()
@@ -301,13 +340,11 @@ def pobierz_oferty_olx(fraza, kategorie_slugs, stany_olx, cena_min, cena_max, pa
                             detail_page = context.new_page()
                             try:
                                 detail_page.goto(link, wait_until="commit", timeout=8000)
-                                detail_page.wait_for_selector('div[data-cy="ad_description"], div[class*="css-1o9z2s"]',
-                                                              timeout=4000)
+                                detail_page.wait_for_selector('div[data-cy="ad_description"], div[class*="css-1o9z2s"]', timeout=4000)
                             except Exception:
                                 pass
 
-                            desc_elem = detail_page.query_selector(
-                                'div[data-cy="ad_description"], div[class*="css-1o9z2s"]')
+                            desc_elem = detail_page.query_selector('div[data-cy="ad_description"], div[class*="css-1o9z2s"]')
                             if desc_elem:
                                 tresc_opisu = desc_elem.inner_text()
                             detail_page.close()
@@ -318,8 +355,7 @@ def pobierz_oferty_olx(fraza, kategorie_slugs, stany_olx, cena_min, cena_max, pa
                             odrzucone_list.append(f"{tytul} ({cena_str})")
                             continue
 
-                        czy_uszkodzony, ostrzezenie_opis, skrot_opisu, cechy_z_opisu = analizuj_i_stworz_skrot_opisu(
-                            tresc_opisu)
+                        czy_uszkodzony, ostrzezenie_opis, skrot_opisu, cechy_z_opisu = analizuj_i_stworz_skrot_opisu(tresc_opisu)
                         dostawa_info = wykryj_forme_dostawy(card, tresc_opisu)
 
                         unikalne_linki.add(link)
@@ -345,93 +381,161 @@ def pobierz_oferty_olx(fraza, kategorie_slugs, stany_olx, cena_min, cena_max, pa
     pasek_postepu.progress(100)
     return oferty, odrzucone_list, total_time_formatted
 
-
-# --- INTERFEJS UŻYTKOWNIKA ---
+# --- INTERFEJS APLIKACJI ---
 
 st.title("🔍 Porównywarka Ofert OLX")
-st.write("Wklej link ze sklepu lub wpisz nazwę przedmiotu ręcznie.")
 
-input_data = st.text_input("Link lub nazwa przedmiotu:", placeholder="np. https://... lub Rower Kross Hexagon 3.0")
+tab_search, tab_patch_notes, tab_feedback = st.tabs([
+    "🔍 Wyszukiwarka Ofert", 
+    "📋 Lista Zmian (Patch Notes)", 
+    "💬 Zgłoś Błąd / Feedback"
+])
 
-col_cat, col_f1, col_c1, col_c2 = st.columns([2.5, 2, 1, 1])
+# === ZAKŁADKA 1: WYSZUKIWARKA ===
+with tab_search:
+    st.write("Wklej link ze sklepu lub wpisz nazwę przedmiotu ręcznie.")
 
-with col_cat:
-    wybrane_kategorie_nazwy = st.multiselect(
-        "Kategorie OLX:",
-        list(KATEGORIE_OLX.keys()),
-        default=["Wszystkie kategorie"]
-    )
-with col_f1:
-    stany_olx = st.multiselect("Stan przedmiotu:", ["Nowe", "Używane", "Uszkodzone"], default=["Nowe", "Używane"])
-with col_c1:
-    cena_min = st.number_input("Cena minimalna (PLN):", min_value=0, value=0, step=50,
-                               help="Odrzuca drobne akcesoria i części")
-with col_c2:
-    cena_max = st.number_input("Cena maksymalna (PLN, 0 = brak):", min_value=0, value=0, step=50)
+    input_data = st.text_input("Link lub nazwa przedmiotu:", placeholder="np. https://... lub Rower Kross Hexagon 3.0")
 
-if st.button("Szukaj najtańszych ofert na OLX"):
-    if not input_data.strip():
-        st.warning("Proszę wpisać frazę lub wkleić link.")
-    elif not wybrane_kategorie_nazwy:
-        st.warning("Proszę wybrać przynajmniej jedną kategorię.")
-    else:
-        szukana_fraza = wyciagnij_nazwe_z_linku(input_data)
+    col_cat, col_f1, col_c1, col_c2 = st.columns([2.5, 2, 1, 1])
 
-        if "Wszystkie kategorie" in wybrane_kategorie_nazwy:
-            kategorie_slugs = ["oferty"]
-            opis_kat = "Wszystkie kategorie"
-        else:
-            kategorie_slugs = [KATEGORIE_OLX[k] for k in wybrane_kategorie_nazwy]
-            opis_kat = ", ".join(wybrane_kategorie_nazwy)
-
-        st.info(
-            f"Przeszukuję kategorie (**{opis_kat}**) na OLX dla frazy: **{szukana_fraza}** (Zakres cen: {cena_min} zł - {cena_max if cena_max > 0 else 'brak limitu'} zł)")
-
-        pasek = st.progress(0)
-        status = st.empty()
-
-        wyniki, odrzucone, czas_pracy = pobierz_oferty_olx(
-            szukana_fraza, kategorie_slugs, stany_olx, cena_min, cena_max,
-            pasek, status
+    with col_cat:
+        wybrane_kategorie_nazwy = st.multiselect(
+            "Kategorie OLX:", 
+            list(KATEGORIE_OLX.keys()), 
+            default=["Wszystkie kategorie"]
         )
+    with col_f1:
+        stany_olx = st.multiselect("Stan przedmiotu:", ["Nowe", "Używane", "Uszkodzone"], default=["Nowe", "Używane"])
+    with col_c1:
+        cena_min = st.number_input("Cena minimalna (PLN):", min_value=0, value=0, step=50, help="Odrzuca drobne akcesoria i części")
+    with col_c2:
+        cena_max = st.number_input("Cena maksymalna (PLN, 0 = brak):", min_value=0, value=0, step=50)
 
-        pasek.empty()
-        status.empty()
-
-        if not wyniki:
-            st.error("Nie znaleziono pasujących ofert w podanym zakresie cenowym.")
+    if st.button("Szukaj najtańszych ofert na OLX"):
+        if not input_data.strip():
+            st.warning("Proszę wpisać frazę lub wkleić link.")
+        elif not wybrane_kategorie_nazwy:
+            st.warning("Proszę wybrać przynajmniej jedną kategorię.")
         else:
-            st.success(
-                f"Znaleziono {len(wyniki)} trafnych ofert na OLX w czasie {czas_pracy}! Posortowano od najniższej ceny:")
+            szukana_fraza = wyciagnij_nazwe_z_linku(input_data)
+            
+            if "Wszystkie kategorie" in wybrane_kategorie_nazwy:
+                kategorie_slugs = ["oferty"]
+                opis_kat = "Wszystkie kategorie"
+            else:
+                kategorie_slugs = [KATEGORIE_OLX[k] for k in wybrane_kategorie_nazwy]
+                opis_kat = ", ".join(wybrane_kategorie_nazwy)
+            
+            st.info(f"Przeszukuję kategorie (**{opis_kat}**) na OLX dla frazy: **{szukana_fraza}** (Zakres cen: {cena_min} zł - {cena_max if cena_max > 0 else 'brak limitu'} zł)")
+            
+            pasek = st.progress(0)
+            status = st.empty()
+            
+            wyniki, odrzucone, czas_pracy = pobierz_oferty_olx(
+                szukana_fraza, kategorie_slugs, stany_olx, cena_min, cena_max, 
+                pasek, status
+            )
+            
+            pasek.empty()
+            status.empty()
+            
+            if not wyniki:
+                st.error("Nie znaleziono pasujących ofert w podanym zakresie cenowym.")
+            else:
+                st.success(f"Znaleziono {len(wyniki)} trafnych ofert na OLX w czasie {czas_pracy}! Posortowano od najniższej ceny:")
+                
+                for idx, o in enumerate(wyniki, start=1):
+                    col1, col2, col3, col4 = st.columns([1, 4.5, 2, 2])
+                    with col1:
+                        st.markdown(f"### #{idx}")
+                        st.caption(f"**{o['źródło']}**")
+                    with col2:
+                        st.write(f"**{o['tytuł']}**")
+                        
+                        st.caption(f"🚚 **Dostawa:** {o['dostawa']}")
+                        
+                        if o['cechy']:
+                            st.markdown(" ".join([f"`{c}`" for c in o['cechy']]))
 
-            for idx, o in enumerate(wyniki, start=1):
-                col1, col2, col3, col4 = st.columns([1, 4.5, 2, 2])
-                with col1:
-                    st.markdown(f"### #{idx}")
-                    st.caption(f"**{o['źródło']}**")
-                with col2:
-                    st.write(f"**{o['tytuł']}**")
+                        with st.expander("📄 Szczegółowy podgląd opisu"):
+                            st.text(o['skrot_opisu'])
 
-                    st.caption(f"🚚 **Dostawa:** {o['dostawa']}")
+                        if o['ostrzezenie']:
+                            st.error(o['ostrzezenie'])
 
-                    if o['cechy']:
-                        st.markdown(" ".join([f"`{c}`" for c in o['cechy']]))
+                    with col3:
+                        st.markdown(f"💰 **{o['cena_str']}**")
+                    with col4:
+                        st.link_button("Zobacz ofertę", o['link'])
+                    st.divider()
 
-                    with st.expander("📄 Szczegółowy podgląd opisu"):
-                        st.text(o['skrot_opisu'])
+            if odrzucone:
+                with st.expander(f"🗑️ Zobacz odrzucone oferty ({len(odrzucone)})"):
+                    st.caption("Poniższe oferty zostały zignorowane jako niezgodne z szukanym przedmiotem lub poniżej ceny min:")
+                    for item in odrzucone[:50]:
+                        st.text(item)
 
-                    if o['ostrzezenie']:
-                        st.error(o['ostrzezenie'])
+# === ZAKŁADKA 2: PATCH NOTES ===
+with tab_patch_notes:
+    st.header("📋 Historia Zmian (Patch Notes)")
 
-                with col3:
-                    st.markdown(f"💰 **{o['cena_str']}**")
-                with col4:
-                    st.link_button("Zobacz ofertę", o['link'])
-                st.divider()
+    # Przyszły przełącznik filtrowania (możliwość pokazywania tylko kluczowych zmian)
+    tylko_wazne = st.checkbox("Pokaż tylko najważniejsze wersje (Major Releases)", value=False)
 
-        if odrzucone:
-            with st.expander(f"🗑️ Zobacz odrzucone oferty ({len(odrzucone)})"):
-                st.caption(
-                    "Poniższe oferty zostały zignorowane jako niezgodne z szukanym przedmiotem lub poniżej ceny min:")
-                for item in odrzucone[:50]:
-                    st.text(item)
+    for item in HISTORIA_ZMIAN:
+        if tylko_wazne and not item["wazna"]:
+            continue
+            
+        badge = "🚀 WAŻNA WERSJA" if item["wazna"] else "🛠️ POPRAWKA"
+        st.subheader(f"{item['wersja']} — {badge}")
+        st.caption(f"Data wydania: {item['data']} | *{item['opis']}*")
+        
+        for zmiana in item["zmiany"]:
+            st.markdown(f"* {zmiana}")
+        st.divider()
+
+# === ZAKŁADKA 3: BUFOR ZGŁOSZEŃ / FEEDBACK ===
+with tab_feedback:
+    st.header("💬 Centrum Zgłoszeń i Uwag")
+    st.write("Coś nie działa, a może masz pomysł na nową funkcję? Zgłoś to poniżej.")
+
+    with st.form("formularz_zgloszenia", clear_on_submit=True):
+        col_typ, col_autor = st.columns([2, 2])
+        with col_typ:
+            typ_zgloszenia = st.selectbox(
+                "Kategoria zgłoszenia:", 
+                ["🔴 Błąd w działaniu", "⚠️ Błędne/nietrafne wyniki", "💡 Propozycja nowej funkcji", "ℹ️ Inne"]
+            )
+        with col_autor:
+            autor = st.text_input("Twój nick lub kontakt (opcjonalnie):", placeholder="np. Janek / jan@example.com")
+
+        opis_problem = st.text_area("Opis sytuacji / co nie działa:", placeholder="np. Wyszukując 'Astra K' na stronie 2 dostałem błąd timeout...")
+        
+        submit = st.form_submit_button("Wyślij zgłoszenie do bufora")
+
+        if submit:
+            if not opis_problem.strip():
+                st.error("Proszę wpisać opis zgłoszenia.")
+            else:
+                nowy_wpis = {
+                    "id": len(st.session_state["bufor_zgloszen"]) + 1,
+                    "czas": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "kategoria": typ_zgloszenia,
+                    "autor": autor.strip() if autor.strip() else "Anonim",
+                    "opis": opis_problem.strip(),
+                    "status": "⏳ Oczekuje na weryfikację"
+                }
+                st.session_state["bufor_zgloszen"].insert(0, nowy_wpis)
+                st.success("Dziękujemy! Zgłoszenie zostało dodane do bufora.")
+
+    st.divider()
+    st.subheader(f"📥 Aktywny Bufor Zgłoszeń ({len(st.session_state['bufor_zgloszen'])})")
+
+    if not st.session_state["bufor_zgloszen"]:
+        st.info("Brak zgłoszonych uwag w buforze.")
+    else:
+        for zgl in st.session_state["bufor_zgloszen"]:
+            with st.expander(f"#{zgl['id']} [{zgl['kategoria']}] od {zgl['autor']} — {zgl['czas']}"):
+                st.caption(f"Status: **{zgl['status']}**")
+                st.write(f"**Opis:** {zgl['opis']}")
