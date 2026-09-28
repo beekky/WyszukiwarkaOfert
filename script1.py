@@ -20,7 +20,7 @@ from datetime import datetime
 
 st.set_page_config(page_title="OLX Analytics & Price Tracker", page_icon="⚡", layout="wide")
 
-# --- CUSTOM CSS: ZINTEGROWANY MOTYW SAAS DASHBOARD ---
+# --- CUSTOM CSS: MOTYW SAAS DASHBOARD ---
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
@@ -36,25 +36,21 @@ st.markdown("""
         --text-muted: #94a3b8;
     }
 
-    /* Główne tło i reset motywów Streamlita */
     html, body, [data-testid="stAppViewContainer"], [data-testid="stHeader"], .main {
         background-color: var(--dash-bg) !important;
         color: var(--text-main) !important;
         font-family: 'Plus Jakarta Sans', sans-serif !important;
     }
 
-    /* Pasek boczny - Sidebar */
     section[data-testid="stSidebar"] {
         background-color: var(--sidebar-bg) !important;
         border-right: 1px solid var(--border-color) !important;
     }
 
-    /* Teksty i etykiety */
     label, p, span, h1, h2, h3, h4, h5, h6, .stMarkdown {
         color: var(--text-main) !important;
     }
 
-    /* Pola formularzy */
     input, textarea, div[data-baseweb="select"], div[data-baseweb="base-input"] {
         background-color: #0f172a !important;
         color: #ffffff !important;
@@ -62,7 +58,6 @@ st.markdown("""
         border-radius: 8px !important;
     }
 
-    /* Kafelki Analityki (Metric Cards) */
     .metric-card {
         background-color: #1e293b;
         border: 1px solid var(--border-color);
@@ -82,7 +77,6 @@ st.markdown("""
         letter-spacing: 0.05em;
     }
 
-    /* Pigułki i tagi ofert */
     .pill-tag {
         display: inline-block;
         font-size: 0.8rem;
@@ -100,7 +94,6 @@ st.markdown("""
         border-color: rgba(0, 242, 254, 0.3);
     }
 
-    /* Przyciski */
     div.stButton > button {
         border-radius: 8px !important;
         font-weight: 700 !important;
@@ -145,25 +138,23 @@ if "stop_requested" not in st.session_state:
 # --- PATCH NOTES ---
 HISTORIA_ZMIAN = [
     {
+        "wersja": "v2.1.0",
+        "data": "28 Września 2026",
+        "wazna": True,
+        "opis": "Poprawka braku wyników wyszukiwania i obsługa zmian struktury OLX.",
+        "zmiany": [
+            "Zaktualizowano selektory kart ogłoszeń na OLX (obsługa data-cy, data-testid oraz ad-card).",
+            "Naprawiono filtr wycinający polskie znaki diakrytyczne (ą, ć, ę, ł, ń, ó, ś, ź, ż) z zapytania.",
+            "Wprowadzono automatyczne wykrywanie blokad antybotowych (Cloudflare / CAPTCHA) z czytelną informacją dla użytkownika.",
+            "Złagodzono algorytm weryfikacji trafności w czy_trafna_oferta."
+        ]
+    },
+    {
         "wersja": "v2.0.0",
         "data": "28 Września 2026",
         "wazna": True,
         "opis": "Zabezpieczenie przed błędem TargetClosedError i dodanie opcji ręcznego przerwania skanowania.",
-        "zmiany": [
-            "Dodano przycisk 🛑 Przerwij Wyszukiwanie pozwalający natychmiast zatrzymać pobieranie danych i wyświetlić dotychczasowe wyniki.",
-            "Zabezpieczono pętlę Playwright przed awaryjnym zamknięciem przeglądarki (TargetClosedError / Disconnect).",
-            "Zapobieżenie crashom serwera przy anulowaniu zapytania przez użytkownika."
-        ]
-    },
-    {
-        "wersja": "v1.9.0",
-        "data": "28 Września 2026",
-        "wazna": True,
-        "opis": "Kompletna zmiana struktury na układ typu Dashboard / SaaS Analytics.",
-        "zmiany": [
-            "Przeniesiono całą konfigurację wyszukiwania do lewego paska bocznego (Sidebar).",
-            "Dodano górny panel ze skróconą analityką (Liczba okazjonalnych ofert, Najniższa cena, Średnia cena)."
-        ]
+        "zmiany": ["Dodano przycisk 🛑 Stop oraz zabezpieczenie pętli Playwright."]
     }
 ]
 
@@ -290,12 +281,10 @@ def czy_trafna_oferta(szukana_fraza, znaleziony_tytul, url="", tresc_opisu=""):
     if not slowa_zapytania:
         return True
 
-    glowne_klucze = [s for s in slowa_zapytania if len(s) > 3 and not s.isdigit() and s not in GENERYCZNE_SLOWA]
-    if glowne_klucze and not any(k in pelny_tekst for k in glowne_klucze):
-        return False
-
     trafione = [s for s in slowa_zapytania if s in pelny_tekst]
-    return (len(trafione) / len(slowa_zapytania)) >= 0.5 if len(slowa_zapytania) >= 2 else len(trafione) >= 1
+    if len(slowa_zapytania) >= 2:
+        return (len(trafione) / len(slowa_zapytania)) >= 0.4
+    return len(trafione) >= 1
 
 def zablokuj_zbedne_zasoby_i_reklamy(route):
     try:
@@ -313,13 +302,15 @@ def formatuj_czas(sekundy):
     m, s = divmod(s, 60)
     return f"{m}m {s}s" if m > 0 else f"{s}s"
 
-# --- OCHRONIONA PĘTLA SKANOWANIA BEZ BŁĘDU TARGETCLOSEERROR ---
+# --- ZOPTAMALIZOWANA I ODPORNA PĘTLA SKANOWANIA ---
 def pobierz_oferty_olx(fraza, kategorie_slugs, stany_olx, cena_min, cena_max, pasek_postepu, tekst_statusu, stop_container):
     oferty, odrzucone_list, unikalne_linki = [], [], set()
     MAX_OFERT, MAX_STRON_PER_KAT = 100, 30
 
+    # Poprawne zachowanie polskich znaków w nazwie
     fraza_clean = re.sub(r'\s+', ' ', fraza.strip())
-    olx_query = re.sub(r'[^a-zA-Z0-9\s-]', '', fraza_clean).strip().replace(" ", "-")
+    olx_query_clean = re.sub(r'[^a-zA-Z0-9ąęłśćóżźĄĘŁŚĆÓŻŹ\s-]', '', fraza_clean).strip().replace(" ", "-")
+    olx_query = urllib.parse.quote(olx_query_clean)
 
     olx_map = {"Nowe": "new", "Używane": "used", "Uszkodzone": "damaged"}
     olx_state_param = "".join([f"&search%5Bfilter_enum_state%5D%5B{i}%5D={olx_map[s]}" for i, s in enumerate(stany_olx) if s in olx_map])
@@ -330,12 +321,16 @@ def pobierz_oferty_olx(fraza, kategorie_slugs, stany_olx, cena_min, cena_max, pa
     tekst_statusu.write("⚡ Uruchamiam silnik w tle z blokadą reklam...")
     pasek_postepu.progress(2)
     start_time = time.time()
+    bot_blocked = False
 
     try:
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True, args=["--disable-blink-features=AutomationControlled", "--no-sandbox"])
+            browser = p.chromium.launch(
+                headless=True, 
+                args=["--disable-blink-features=AutomationControlled", "--no-sandbox", "--disable-dev-shm-usage"]
+            )
             context = browser.new_context(
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
                 viewport={"width": 1366, "height": 768},
                 locale="pl-PL"
             )
@@ -359,24 +354,33 @@ def pobierz_oferty_olx(fraza, kategorie_slugs, stany_olx, cena_min, cena_max, pa
                     olx_url = f"https://www.olx.pl/{kategoria_slug}/q-{olx_query}/?page={strona}&search%5Border%5D=filter_float_price%3Aasc{olx_state_param}{olx_price_param}"
                     
                     try:
-                        page.goto(olx_url, wait_until="commit", timeout=12000)
-                        page.wait_for_selector('div[data-cy="l-card"]', timeout=6000)
+                        page.goto(olx_url, wait_until="domcontentloaded", timeout=15000)
                     except Exception: 
                         pass
                     
-                    try:
-                        if strona > 1 and f"page={strona}" not in page.url and f"page/{strona}" not in page.url: 
-                            break
+                    # Weryfikacja czy OLX nie zablokował IP serwera (Cloudflare Bot Challenge)
+                    page_title = page.title().lower()
+                    if "cloudflare" in page_title or "security check" in page_title or "access denied" in page_title:
+                        bot_blocked = True
+                        break
 
-                        cards = page.query_selector_all('div[data-cy="l-card"]')
-                        if not cards: break
+                    try:
+                        # Rozszerzony selektor odpowiadający starej i nowej strukturze OLX
+                        cards = page.query_selector_all('div[data-cy="l-card"], div[data-testid="l-card"], [data-testid="ad-card"]')
+                        if not cards and strona == 1:
+                            # Próba alternatywnego oczekiwania
+                            page.wait_for_selector('div[data-cy="l-card"], div[data-testid="l-card"]', timeout=4000)
+                            cards = page.query_selector_all('div[data-cy="l-card"], div[data-testid="l-card"], [data-testid="ad-card"]')
+                            
+                        if not cards: 
+                            break
 
                         for card in cards: 
                             if len(oferty) >= MAX_OFERT or st.session_state.get("stop_requested", False): 
                                 break
                                 
-                            title_elem = card.query_selector('h6, h4, [data-testid="ad-title"]')
-                            price_elem = card.query_selector('p[data-testid="ad-price"]')
+                            title_elem = card.query_selector('h6, h4, [data-testid="ad-title"], [data-cy="ad-card-title"]')
+                            price_elem = card.query_selector('p[data-testid="ad-price"], [data-cy="ad-price"]')
                             link_elem = card.query_selector('a')
                             
                             if title_elem and price_elem and link_elem:
@@ -392,8 +396,8 @@ def pobierz_oferty_olx(fraza, kategorie_slugs, stany_olx, cena_min, cena_max, pa
                                 tresc_opisu = ""
                                 try:
                                     detail_page = context.new_page()
-                                    detail_page.goto(link, wait_until="commit", timeout=8000)
-                                    desc_elem = detail_page.query_selector('div[data-cy="ad_description"], div[class*="css-1o9z2s"]')
+                                    detail_page.goto(link, wait_until="domcontentloaded", timeout=8000)
+                                    desc_elem = detail_page.query_selector('div[data-cy="ad_description"], div[class*="css-1o9z2s"], [data-testid="ad_description"]')
                                     if desc_elem: tresc_opisu = desc_elem.inner_text()
                                     detail_page.close()
                                 except Exception: 
@@ -422,12 +426,15 @@ def pobierz_oferty_olx(fraza, kategorie_slugs, stany_olx, cena_min, cena_max, pa
             except Exception:
                 pass
     except Exception:
-        # Obsługa awaryjnego zamknięcia kontekstu (TargetClosedError) - zwraca zebrane oferty bez błędu
         pass
 
     total_time_formatted = formatuj_czas(time.time() - start_time)
     oferty.sort(key=lambda x: x['cena_val'])
     pasek_postepu.progress(100)
+    
+    if bot_blocked:
+        st.warning("⚠️ Serwer OLX tymczasowo ograniczył zapytania z tego IP (weryfikacja botowa). Odczekaj chwilę lub spróbuj zaświadczyć wyszukiwanie z bardziej precyzyjną nazwą.")
+        
     return oferty, odrzucone_list, total_time_formatted
 
 # --- DIALOG LOGOWANIA ADMINA ---
@@ -449,7 +456,7 @@ def dialog_logowania():
         if st.button("Anuluj", use_container_width=True):
             st.rerun()
 
-# --- UKŁAD STRONY: PANEL BOCZNY (SIDEBAR DASHBOARD) ---
+# --- UKŁAD STRONY: PANEL BOCZNY ---
 
 with st.sidebar:
     st.markdown("## ⚙️ Panel Sterowania")
