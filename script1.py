@@ -62,25 +62,6 @@ st.markdown("""
         border-radius: 8px !important;
     }
 
-    /* Nagłówek aplikacji */
-    .top-header {
-        background: linear-gradient(135deg, rgba(30, 41, 59, 0.6) 0%, rgba(15, 23, 42, 0.8) 100%);
-        border: 1px solid var(--border-color);
-        border-radius: 14px;
-        padding: 20px 24px;
-        margin-bottom: 20px;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-    }
-    .top-header-title {
-        font-size: 1.8rem;
-        font-weight: 800;
-        background: linear-gradient(135deg, #00f2fe 0%, #3b82f6 100%);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-    }
-
     /* Kafelki Analityki (Metric Cards) */
     .metric-card {
         background-color: #1e293b;
@@ -158,8 +139,22 @@ if "bufor_zgloszen" not in st.session_state:
 if "zalogowany_admin" not in st.session_state:
     st.session_state["zalogowany_admin"] = False
 
+if "stop_requested" not in st.session_state:
+    st.session_state["stop_requested"] = False
+
 # --- PATCH NOTES ---
 HISTORIA_ZMIAN = [
+    {
+        "wersja": "v2.0.0",
+        "data": "28 Września 2026",
+        "wazna": True,
+        "opis": "Zabezpieczenie przed błędem TargetClosedError i dodanie opcji ręcznego przerwania skanowania.",
+        "zmiany": [
+            "Dodano przycisk 🛑 Przerwij Wyszukiwanie pozwalający natychmiast zatrzymać pobieranie danych i wyświetlić dotychczasowe wyniki.",
+            "Zabezpieczono pętlę Playwright przed awaryjnym zamknięciem przeglądarki (TargetClosedError / Disconnect).",
+            "Zapobieżenie crashom serwera przy anulowaniu zapytania przez użytkownika."
+        ]
+    },
     {
         "wersja": "v1.9.0",
         "data": "28 Września 2026",
@@ -167,17 +162,8 @@ HISTORIA_ZMIAN = [
         "opis": "Kompletna zmiana struktury na układ typu Dashboard / SaaS Analytics.",
         "zmiany": [
             "Przeniesiono całą konfigurację wyszukiwania do lewego paska bocznego (Sidebar).",
-            "Dodano górny panel ze skróconą analityką (Liczba okazjonalnych ofert, Najniższa cena, Średnia cena).",
-            "Zintegrowano przycisk administratora wewnątrz paska bocznego.",
-            "Wymuszono spójne tło i kolory tekstu odporne na przełączanie trybu jasnego/ciemnego w przeglądarce."
+            "Dodano górny panel ze skróconą analityką (Liczba okazjonalnych ofert, Najniższa cena, Średnia cena)."
         ]
-    },
-    {
-        "wersja": "v1.8.0",
-        "data": "28 Września 2026",
-        "wazna": True,
-        "opis": "Implementacja szaty graficznej Stevia Style.",
-        "zmiany": ["Dopasowanie kolorystyki i typografii."]
     }
 ]
 
@@ -275,8 +261,12 @@ def analizuj_i_stworz_skrot_opisu(tekst_opisu):
     return czy_uszkodzony, ostrzezenie, skrot, cechy
 
 def wykryj_forme_dostawy(card, tresc_opisu):
-    card_html = card.inner_html().lower() if card else ""
-    ma_olx = "przesyłka olx" in card_html or "kup z przesyłką" in card_html or card.query_selector('[data-testid="delivery-icon"]') is not None
+    try:
+        card_html = card.inner_html().lower() if card else ""
+        ma_olx = "przesyłka olx" in card_html or "kup z przesyłką" in card_html or card.query_selector('[data-testid="delivery-icon"]') is not None
+    except Exception:
+        ma_olx = False
+        
     tekst_lower = tresc_opisu.lower() if tresc_opisu else ""
     ma_odbior = any(kw in tekst_lower for kw in ['odbiór osobisty', 'odbior osobisty', 'tylko odbiór'])
     ma_wysylka = any(kw in tekst_lower for kw in ['wysyłka', 'wysylka', 'paczkomat', 'kurier', 'poczta'])
@@ -308,19 +298,23 @@ def czy_trafna_oferta(szukana_fraza, znaleziony_tytul, url="", tresc_opisu=""):
     return (len(trafione) / len(slowa_zapytania)) >= 0.5 if len(slowa_zapytania) >= 2 else len(trafione) >= 1
 
 def zablokuj_zbedne_zasoby_i_reklamy(route):
-    url = route.request.url.lower()
-    res_type = route.request.resource_type
-    if res_type in ["image", "media", "font"] or any(domena in url for domena in DOMENY_REKLAMOWE):
-        route.abort()
-    else:
-        route.continue_()
+    try:
+        url = route.request.url.lower()
+        res_type = route.request.resource_type
+        if res_type in ["image", "media", "font"] or any(domena in url for domena in DOMENY_REKLAMOWE):
+            route.abort()
+        else:
+            route.continue_()
+    except Exception:
+        pass
 
 def formatuj_czas(sekundy):
     s = int(sekundy)
     m, s = divmod(s, 60)
     return f"{m}m {s}s" if m > 0 else f"{s}s"
 
-def pobierz_oferty_olx(fraza, kategorie_slugs, stany_olx, cena_min, cena_max, pasek_postepu, tekst_statusu):
+# --- OCHRONIONA PĘTLA SKANOWANIA BEZ BŁĘDU TARGETCLOSEERROR ---
+def pobierz_oferty_olx(fraza, kategorie_slugs, stany_olx, cena_min, cena_max, pasek_postepu, tekst_statusu, stop_container):
     oferty, odrzucone_list, unikalne_linki = [], [], set()
     MAX_OFERT, MAX_STRON_PER_KAT = 100, 30
 
@@ -337,83 +331,99 @@ def pobierz_oferty_olx(fraza, kategorie_slugs, stany_olx, cena_min, cena_max, pa
     pasek_postepu.progress(2)
     start_time = time.time()
 
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True, args=["--disable-blink-features=AutomationControlled", "--no-sandbox"])
-        context = browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            viewport={"width": 1366, "height": 768},
-            locale="pl-PL"
-        )
-        context.route("**/*", zablokuj_zbedne_zasoby_i_reklamy)
-        page = context.new_page()
-        page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True, args=["--disable-blink-features=AutomationControlled", "--no-sandbox"])
+            context = browser.new_context(
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                viewport={"width": 1366, "height": 768},
+                locale="pl-PL"
+            )
+            context.route("**/*", zablokuj_zbedne_zasoby_i_reklamy)
+            page = context.new_page()
+            page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
 
-        total_kategorii = len(kategorie_slugs)
+            total_kategorii = len(kategorie_slugs)
 
-        for kat_idx, kategoria_slug in enumerate(kategorie_slugs, start=1):
-            if len(oferty) >= MAX_OFERT: break
+            for kat_idx, kategoria_slug in enumerate(kategorie_slugs, start=1):
+                if len(oferty) >= MAX_OFERT or st.session_state.get("stop_requested", False): 
+                    break
 
-            for strona in range(1, MAX_STRON_PER_KAT + 1):
-                if len(oferty) >= MAX_OFERT: break
+                for strona in range(1, MAX_STRON_PER_KAT + 1):
+                    if len(oferty) >= MAX_OFERT or st.session_state.get("stop_requested", False): 
+                        break
 
-                elapsed_sec = time.time() - start_time
-                tekst_statusu.write(f"⚡ Kat. {kat_idx}/{total_kategorii} | Strona {strona} (znaleziono: {len(oferty)}) | ⏱️ {formatuj_czas(elapsed_sec)}")
+                    elapsed_sec = time.time() - start_time
+                    tekst_statusu.write(f"⚡ Kat. {kat_idx}/{total_kategorii} | Strona {strona} (znaleziono: {len(oferty)}) | ⏱️ {formatuj_czas(elapsed_sec)}")
 
-                olx_url = f"https://www.olx.pl/{kategoria_slug}/q-{olx_query}/?page={strona}&search%5Border%5D=filter_float_price%3Aasc{olx_state_param}{olx_price_param}"
-                
-                try:
-                    page.goto(olx_url, wait_until="commit", timeout=12000)
-                    page.wait_for_selector('div[data-cy="l-card"]', timeout=6000)
-                except Exception: pass
-                
-                if strona > 1 and f"page={strona}" not in page.url and f"page/{strona}" not in page.url: break
-
-                cards = page.query_selector_all('div[data-cy="l-card"]')
-                if not cards: break
-
-                for card in cards: 
-                    if len(oferty) >= MAX_OFERT: break
-                        
-                    title_elem = card.query_selector('h6, h4, [data-testid="ad-title"]')
-                    price_elem = card.query_selector('p[data-testid="ad-price"]')
-                    link_elem = card.query_selector('a')
+                    olx_url = f"https://www.olx.pl/{kategoria_slug}/q-{olx_query}/?page={strona}&search%5Border%5D=filter_float_price%3Aasc{olx_state_param}{olx_price_param}"
                     
-                    if title_elem and price_elem and link_elem:
-                        tytul = title_elem.inner_text().strip()
-                        cena_str = price_elem.inner_text().strip()
-                        cena_num = parse_price(cena_str)
-                        link = link_elem.get_attribute('href') or ""
-                        if link and not link.startswith('http'): link = "https://www.olx.pl" + link
+                    try:
+                        page.goto(olx_url, wait_until="commit", timeout=12000)
+                        page.wait_for_selector('div[data-cy="l-card"]', timeout=6000)
+                    except Exception: 
+                        pass
+                    
+                    try:
+                        if strona > 1 and f"page={strona}" not in page.url and f"page/{strona}" not in page.url: 
+                            break
 
-                        if link in unikalne_linki or (cena_min > 0 and cena_num < cena_min) or (cena_max > 0 and cena_num > cena_max):
-                            continue
+                        cards = page.query_selector_all('div[data-cy="l-card"]')
+                        if not cards: break
 
-                        tresc_opisu = ""
-                        try:
-                            detail_page = context.new_page()
-                            detail_page.goto(link, wait_until="commit", timeout=8000)
-                            desc_elem = detail_page.query_selector('div[data-cy="ad_description"], div[class*="css-1o9z2s"]')
-                            if desc_elem: tresc_opisu = desc_elem.inner_text()
-                            detail_page.close()
-                        except Exception: pass
+                        for card in cards: 
+                            if len(oferty) >= MAX_OFERT or st.session_state.get("stop_requested", False): 
+                                break
+                                
+                            title_elem = card.query_selector('h6, h4, [data-testid="ad-title"]')
+                            price_elem = card.query_selector('p[data-testid="ad-price"]')
+                            link_elem = card.query_selector('a')
+                            
+                            if title_elem and price_elem and link_elem:
+                                tytul = title_elem.inner_text().strip()
+                                cena_str = price_elem.inner_text().strip()
+                                cena_num = parse_price(cena_str)
+                                link = link_elem.get_attribute('href') or ""
+                                if link and not link.startswith('http'): link = "https://www.olx.pl" + link
 
-                        if not czy_trafna_oferta(fraza_clean, tytul, link, tresc_opisu):
-                            odrzucone_list.append(f"{tytul} ({cena_str})")
-                            continue
+                                if link in unikalne_linki or (cena_min > 0 and cena_num < cena_min) or (cena_max > 0 and cena_num > cena_max):
+                                    continue
 
-                        czy_uszkodzony, ostrzezenie_opis, skrot_opisu, cechy_z_opisu = analizuj_i_stworz_skrot_opisu(tresc_opisu)
-                        dostawa_info = wykryj_forme_dostawy(card, tresc_opisu)
+                                tresc_opisu = ""
+                                try:
+                                    detail_page = context.new_page()
+                                    detail_page.goto(link, wait_until="commit", timeout=8000)
+                                    desc_elem = detail_page.query_selector('div[data-cy="ad_description"], div[class*="css-1o9z2s"]')
+                                    if desc_elem: tresc_opisu = desc_elem.inner_text()
+                                    detail_page.close()
+                                except Exception: 
+                                    pass
 
-                        unikalne_linki.add(link)
-                        oferty.append({
-                            "źródło": "OLX", "tytuł": tytul, "cena_str": cena_str, "cena_val": cena_num,
-                            "link": link, "ostrzezenie": ostrzezenie_opis, "czy_uszkodzony": czy_uszkodzony,
-                            "skrot_opisu": skrot_opisu, "cechy": cechy_z_opisu, "dostawa": dostawa_info
-                        })
+                                if not czy_trafna_oferta(fraza_clean, tytul, link, tresc_opisu):
+                                    odrzucone_list.append(f"{tytul} ({cena_str})")
+                                    continue
 
-                pasek_postepu.progress(min(98, int((kat_idx / total_kategorii) * 100)))
+                                czy_uszkodzony, ostrzezenie_opis, skrot_opisu, cechy_z_opisu = analizuj_i_stworz_skrot_opisu(tresc_opisu)
+                                dostawa_info = wykryj_forme_dostawy(card, tresc_opisu)
 
-        browser.close()
+                                unikalne_linki.add(link)
+                                oferty.append({
+                                    "źródło": "OLX", "tytuł": tytul, "cena_str": cena_str, "cena_val": cena_num,
+                                    "link": link, "ostrzezenie": ostrzezenie_opis, "czy_uszkodzony": czy_uszkodzony,
+                                    "skrot_opisu": skrot_opisu, "cechy": cechy_z_opisu, "dostawa": dostawa_info
+                                })
+
+                        pasek_postepu.progress(min(98, int((kat_idx / total_kategorii) * 100)))
+                    except Exception:
+                        break
+
+            try:
+                browser.close()
+            except Exception:
+                pass
+    except Exception:
+        # Obsługa awaryjnego zamknięcia kontekstu (TargetClosedError) - zwraca zebrane oferty bez błędu
+        pass
 
     total_time_formatted = formatuj_czas(time.time() - start_time)
     oferty.sort(key=lambda x: x['cena_val'])
@@ -461,11 +471,16 @@ with st.sidebar:
     with col_s2:
         cena_max = st.number_input("Cena max:", min_value=0, value=0, step=50)
 
-    przycisk_szukaj = st.button("⚡ Uruchom Skaner", use_container_width=True, type="primary")
+    col_btn1, col_btn2 = st.columns([2, 1])
+    with col_btn1:
+        przycisk_szukaj = st.button("⚡ Uruchom", use_container_width=True, type="primary")
+    with col_btn2:
+        if st.button("🛑 Stop", use_container_width=True, help="Przerwij skanowanie"):
+            st.session_state["stop_requested"] = True
+            st.toast("Wysłano sygnał zatrzymania...")
 
     st.divider()
     
-    # Dyskretny przycisk Admina zintegrowany w lewym panelu
     col_adm1, col_adm2 = st.columns([1, 3])
     with col_adm1:
         if st.button("🔑", help="Wloguj się do panelu zarządczego"):
@@ -473,7 +488,7 @@ with st.sidebar:
     with col_adm2:
         st.caption("Tryb Admina" if not st.session_state["zalogowany_admin"] else "✅ Zalogowany Admin")
 
-# --- GŁÓWNY WORKSPACE (MAIN CONTAINER) ---
+# --- GŁÓWNY WORKSPACE ---
 
 tab_search, tab_patch_notes, tab_feedback = st.tabs([
     "🔍 Wyniki i Analityka", 
@@ -484,6 +499,7 @@ tab_search, tab_patch_notes, tab_feedback = st.tabs([
 # === ZAKŁADKA 1: WYNIKI I ANALITYKA ===
 with tab_search:
     if przycisk_szukaj:
+        st.session_state["stop_requested"] = False
         if not input_data.strip():
             st.warning("Proszę podać frazę wyszukiwania lub wkleić link w panelu bocznym.")
         elif not wybrane_kategorie_nazwy:
@@ -498,21 +514,27 @@ with tab_search:
             
             pasek = st.progress(0)
             status = st.empty()
+            stop_container = st.empty()
             
             wyniki, odrzucone, czas_pracy = pobierz_oferty_olx(
                 szukana_fraza, kategorie_slugs, stany_olx, cena_min, cena_max, 
-                pasek, status
+                pasek, status, stop_container
             )
             
             pasek.empty()
             status.empty()
+            stop_container.empty()
             
             if not wyniki:
                 st.error("Nie znaleziono pasujących ofert w podanym zakresie cenowym.")
             else:
-                # Kafelki podsumowujące (Metrics)
                 srednia_cena = sum(o['cena_val'] for o in wyniki) / len(wyniki)
                 
+                if st.session_state.get("stop_requested", False):
+                    st.warning(f"🛑 Wyszukiwanie zostało przerwane na życzenie użytkownika. Wyświetlam {len(wyniki)} ofert pobranych do momentu zatrzymania:")
+                else:
+                    st.success(f"✨ Znaleziono {len(wyniki)} trafnych ofert na OLX w czasie {czas_pracy}! Posortowano od najniższej ceny:")
+
                 m1, m2, m3, m4 = st.columns(4)
                 with m1:
                     st.markdown(f"<div class='metric-card'><div class='metric-value'>{len(wyniki)}</div><div class='metric-label'>Trafnych Ofert</div></div>", unsafe_allow_html=True)
@@ -559,7 +581,7 @@ with tab_search:
                         for item in odrzucone[:50]:
                             st.text(item)
     else:
-        st.info("👈 Wypełnij dane w lewym panelu sterowania i kliknij **'⚡ Uruchamiam Skaner'**, aby pobrać oferty.")
+        st.info("👈 Wypełnij dane w lewym panelu sterowania i kliknij **'⚡ Uruchamiam'**, aby pobrać oferty.")
 
 # === ZAKŁADKA 2: PATCH NOTES ===
 with tab_patch_notes:
