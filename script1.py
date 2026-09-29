@@ -1,3 +1,13 @@
+import subprocess
+import sys
+
+# Automatyczna instalacja brakujących bibliotek w Streamlit Cloud
+for package, import_name in [("cloudscraper", "cloudscraper"), ("beautifulsoup4", "bs4"), ("pandas", "pandas"), ("numpy", "numpy")]:
+    try:
+        __import__(import_name)
+    except ImportError:
+        subprocess.run([sys.executable, "-m", "pip", "install", package], check=True)
+
 import streamlit as st
 import cloudscraper
 from bs4 import BeautifulSoup
@@ -474,4 +484,4 @@ if query_input.strip():
                         st.markdown("<br>", unsafe_allow_html=True)
 
 else:
-    st.info("👈 Wpisz powyżej dowolne zapytanie, np. *'Kupię iPhone 13 do 2500 zł w Warszawie'*, aby rozpoczęć darmową analitykę.")
+    st.info("👈 Wpisz powyżej dowolne zapytanie, np. *'Kupię iPhone 13 do 2500 zł w Warszawie'*, aby rozpocząć darmową analitykę.")
