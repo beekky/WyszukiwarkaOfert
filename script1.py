@@ -15,7 +15,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# --- STYLE CSS (PRO STYLIACJA KART I ODZNAK) ---
+# --- STYLE CSS (PRO STYLIZACJA KART I ODZNAK) ---
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
@@ -141,7 +141,6 @@ def normalize_city(city_text):
     for key, val in CITY_MAPPING.items():
         if key in c:
             return val
-    # Usuwanie polskich znaków diakrytycznych dla nieznanych miast
     c = re.sub(r'[ąá]', 'a', c)
     c = re.sub(r'[ćc]', 'c', c)
     c = re.sub(r'[ęe]', 'e', c)
@@ -180,7 +179,7 @@ def parse_natural_query(text):
     if loc_match:
         location = loc_match.group(1)
 
-    # Czyszczenie tekstu z wykrytych fraz i stopwords
+    # Czyszczenie tekstu z wykrytych fraz
     words_to_remove = []
     if max_match:
         words_to_remove.append(max_match.group(0))
@@ -372,7 +371,6 @@ def process_and_score_deals(offers_list):
 
     for _, row in df.iterrows():
         p = row['price']
-        # Evaluation of Deal Score
         if p <= 0 or median_price <= 0:
             deal_scores.append('ℹ️ Nieokreślona')
             deal_classes.append('deal-neutral')
@@ -386,7 +384,6 @@ def process_and_score_deals(offers_list):
             deal_scores.append('⚖️ Przeciętna')
             deal_classes.append('deal-average')
 
-        # Scam check
         is_safe, msg = check_scam(row['title'], row['description'])
         scam_statuses.append(is_safe)
         scam_msgs.append(msg)
@@ -404,7 +401,7 @@ def process_and_score_deals(offers_list):
 st.markdown('<div class="hero-title">⚡ Inteligentny Agregator Ofert OLX</div>', unsafe_allow_html=True)
 st.markdown('<div class="hero-sub">Darmowa analityka cenowa w czasie rzeczywistym z detekcją okazji i weryfikacją oszustw.</div>', unsafe_allow_html=True)
 
-# 1. GŁÓWNE WEJŚCIE NATURALNE
+# GŁÓWNE WEJŚCIE NATURALNE
 query_input = st.text_input(
     "💬 Wpisz zapytanie w języku naturalnym:",
     placeholder="np. Szukam roweru szosowego do 3000 zł w Krakowie",
@@ -412,19 +409,21 @@ query_input = st.text_input(
 )
 
 if query_input.strip():
-    # Parsowanie zapytania "w locie"
     parsed = parse_natural_query(query_input)
 
-    # Wyświetlenie wyciągniętych parametrów dla użytkownika
+    max_p_str = f"{int(parsed['max_price'])} zł" if parsed['max_price'] else "Brak limitu"
+    min_p_str = f"{int(parsed['min_price'])} zł" if parsed['min_price'] else "Brak"
+    city_str = parsed['location'].capitalize() if parsed['location'] else "Cała Polska"
+
     col_p1, col_p2, col_p3, col_p4 = st.columns(4)
     with col_p1:
         st.info(f"🔎 **Fraza:** {parsed['phrase']}")
     with col_p2:
-        st.info(f"💰 **Cena max:** {f'{int(parsed[\"max_price\"])} zł' if parsed['max_price'] else 'Brak limitu'}")
+        st.info(f"💰 **Cena max:** {max_p_str}")
     with col_p3:
-        st.info(f"🏷️ **Cena min:** {f'{int(parsed[\"min_price\"])} zł' if parsed['min_price'] else 'Brak'}")
+        st.info(f"🏷️ **Cena min:** {min_p_str}")
     with col_p4:
-        st.info(f"📍 **Miasto:** {parsed['location'].capitalize() if parsed['location'] else 'Cała Polska'}")
+        st.info(f"📍 **Miasto:** {city_str}")
 
     if st.button("🚀 Szukaj Najlepszych Okazji", type="primary", use_container_width=True):
         with st.spinner("⚡ Skanuję oferty i obliczam medianę cenową..."):
@@ -439,7 +438,6 @@ if query_input.strip():
 
                 st.success(f"Przeanalizowano {len(df)} ofert. Mediana cenowa wynosi: **{df['median_ref'].iloc[0]:.2f} zł**")
 
-                # Kafelki podsumowania
                 top_deal_count = len(df[df['deal_class'] == 'deal-super'])
                 scam_warn_count = len(df[df['scam_safe'] == False])
 
@@ -450,13 +448,11 @@ if query_input.strip():
 
                 st.markdown("---")
 
-                # 4. ZAAWANSOWANY UI W GRIDZIE (Po 3 w rzędzie)
                 COLS_PER_ROW = 3
                 cols = st.columns(COLS_PER_ROW)
 
                 for idx, row in df.iterrows():
                     col = cols[idx % COLS_PER_ROW]
-
                     scam_class = "scam-safe" if row['scam_safe'] else "scam-warn"
 
                     card_html = f"""
@@ -478,4 +474,4 @@ if query_input.strip():
                         st.markdown("<br>", unsafe_allow_html=True)
 
 else:
-    st.info("👈 Wpisz powyżej dowolne zapytanie, np. *'Kupię iPhone 13 do 2500 zł w Warszawie'*, aby rozpocząć darmową analitykę.")
+    st.info("👈 Wpisz powyżej dowolne zapytanie, np. *'Kupię iPhone 13 do 2500 zł w Warszawie'*, aby rozpoczęć darmową analitykę.")
