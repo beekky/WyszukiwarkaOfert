@@ -1,13 +1,3 @@
-import subprocess
-import sys
-
-# Automatyczna instalacja brakujących bibliotek w Streamlit Cloud
-for package, import_name in [("cloudscraper", "cloudscraper"), ("beautifulsoup4", "bs4"), ("pandas", "pandas"), ("numpy", "numpy")]:
-    try:
-        __import__(import_name)
-    except ImportError:
-        subprocess.run([sys.executable, "-m", "pip", "install", package], check=True)
-
 import streamlit as st
 import cloudscraper
 from bs4 import BeautifulSoup
@@ -15,7 +5,6 @@ import pandas as pd
 import numpy as np
 import urllib.parse
 import re
-import time
 import json
 
 # --- KONFIGURACJA STRONY ---
@@ -41,7 +30,6 @@ st.markdown("""
         border-right: 1px solid #334155 !important;
     }
 
-    /* Karta Oferty */
     .offer-card {
         background-color: #1e293b;
         border: 1px solid #334155;
@@ -85,7 +73,6 @@ st.markdown("""
         margin-bottom: 10px;
     }
 
-    /* Badges / Odznaki */
     .badge {
         display: inline-block;
         font-size: 0.78rem;
@@ -103,7 +90,6 @@ st.markdown("""
     .scam-safe { background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); }
     .scam-warn { background: rgba(239, 68, 68, 0.2); color: #fca5a5; border: 1px solid rgba(239, 68, 68, 0.4); }
 
-    /* Nagłówek i formularz */
     .hero-title {
         font-size: 2.2rem;
         font-weight: 800;
@@ -120,7 +106,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- LISTA PODEJRZANYCH SŁÓW (SCAM CHECKER) ---
+# --- LISTA PODEJRZANYCH SŁÓW ---
 SUSPICIOUS_WORDS = [
     'kurier podejmie', 'przez whatsapp', 'whatsapp', 'płatność z góry',
     'wyjechałem za granicę', 'wyjechałam za granicę', 'przesyłka kurierska inpost',
@@ -128,7 +114,6 @@ SUSPICIOUS_WORDS = [
     'rezerwacja po wpłacie', 'płatność na konto', 'zaliczka'
 ]
 
-# --- SLUGIFIKACJA MIAST DLA OLX ---
 CITY_MAPPING = {
     'krakowie': 'krakow', 'kraków': 'krakow', 'krakow': 'krakow',
     'warszawie': 'warszawa', 'warszawa': 'warszawa',
@@ -161,11 +146,9 @@ def normalize_city(city_text):
     c = re.sub(r'[źżz]', 'z', c)
     return re.sub(r'(ie|iu|ach|e)$', '', c)
 
-# --- 1. WYSZUKIWARKA NATURALNA (PSEUDO-AI PARSER) ---
 def parse_natural_query(text):
     text_clean = text.lower().strip()
     
-    # Wyciąganie maksymalnej ceny
     max_price = None
     max_match = re.search(r'(?:do|max|maksymalnie|poniżej|do kwoty|za)\s*(\d[\d\s]*)\s*(?:zł|pln)?', text_clean)
     if max_match:
@@ -174,7 +157,6 @@ def parse_natural_query(text):
         except ValueError:
             pass
 
-    # Wyciąganie minimalnej ceny
     min_price = None
     min_match = re.search(r'(?:od|min|minimalnie|powyżej)\s*(\d[\d\s]*)\s*(?:zł|pln)?', text_clean)
     if min_match:
@@ -183,13 +165,11 @@ def parse_natural_query(text):
         except ValueError:
             pass
 
-    # Wyciąganie lokalizacji
     location = None
     loc_match = re.search(r'\b(?:w|z|okolice)\s+([a-zA-ZąćęłńóśźżĄĆĘŁŃÓŚŹŻ\-]+)', text_clean)
     if loc_match:
         location = loc_match.group(1)
 
-    # Czyszczenie tekstu z wykrytych fraz
     words_to_remove = []
     if max_match:
         words_to_remove.append(max_match.group(0))
@@ -215,7 +195,6 @@ def parse_natural_query(text):
         'location': location
     }
 
-# --- PARSER CENY ---
 def parse_price_val(price_str):
     if not price_str:
         return 0.0
@@ -225,7 +204,6 @@ def parse_price_val(price_str):
     except ValueError:
         return 0.0
 
-# --- 2. SCRAPER BEZPOŚREDNI OLX (CLOUDSCRAPER + BEAUTIFULSOUP) ---
 def fetch_olx_deals(parsed_data):
     phrase = parsed_data['phrase']
     location = parsed_data['location']
@@ -264,7 +242,6 @@ def fetch_olx_deals(parsed_data):
     soup = BeautifulSoup(response.text, 'html.parser')
     offers = []
 
-    # 1. Odczyt z natywnego obiektu JSON __NEXT_DATA__
     next_data = soup.find('script', id='__NEXT_DATA__')
     if next_data and next_data.string:
         try:
@@ -318,7 +295,6 @@ def fetch_olx_deals(parsed_data):
         except Exception:
             pass
 
-    # 2. Rezerwowy parser kart HTML
     if not offers:
         cards = soup.select('div[data-cy="l-card"], div[data-testid="l-card"], [data-testid="ad-card"]')
         for card in cards:
@@ -352,7 +328,6 @@ def fetch_olx_deals(parsed_data):
 
     return offers, None
 
-# --- 3. DARMOWY WERYFIKATOR OSZUSTW I OCENA OPŁACALNOŚCI (DEAL SCORING) ---
 def check_scam(title, description):
     text = f"{title} {description}".lower()
     triggered = [w for w in SUSPICIOUS_WORDS if w in text]
@@ -365,8 +340,6 @@ def process_and_score_deals(offers_list):
         return pd.DataFrame()
 
     df = pd.DataFrame(offers_list)
-
-    # Obliczanie mediany cenowej z odrzuceniem cen <= 0
     valid_prices = df[df['price'] > 0]['price']
     
     if len(valid_prices) > 0:
@@ -411,7 +384,6 @@ def process_and_score_deals(offers_list):
 st.markdown('<div class="hero-title">⚡ Inteligentny Agregator Ofert OLX</div>', unsafe_allow_html=True)
 st.markdown('<div class="hero-sub">Darmowa analityka cenowa w czasie rzeczywistym z detekcją okazji i weryfikacją oszustw.</div>', unsafe_allow_html=True)
 
-# GŁÓWNE WEJŚCIE NATURALNE
 query_input = st.text_input(
     "💬 Wpisz zapytanie w języku naturalnym:",
     placeholder="np. Szukam roweru szosowego do 3000 zł w Krakowie",
